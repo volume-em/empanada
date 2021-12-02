@@ -1,0 +1,41 @@
+# method for calculating transforms
+# either "xcorr" or "sift"
+alignment_method: "xcorr"
+
+preprocess:
+  - { op: "invert_intensity" }
+  #- { op: "bin2d", kernel_size: 3 }
+
+metadata_format: null #'atlas3d_metadata'
+
+pyramid_scales: [ 1, 2, 4, 8 ]
+chunks: [ 1, null, null ]
+alignment_scale: 2
+
+panoptic_model: './mmm_base_model_optim_211119.pth'
+pointrend_model: './point_rend_model_211119.pth'
+model_norms: { mean: 0.57287007, std: 0.12740536 }
+
+inference_scale: 2
+
+# list of all segmentation labels
+labels: [ 1 ]
+  
+# parameters for the inference engine
+engine_params:
+  median_kernel_size: 7
+  thing_list: [ 1 ]
+  label_divisor: 1000
+  stuff_area: 64
+  void_label: 0
+  nms_threshold: 0.1
+  nms_kernel: 7
+  confidence_thr: 0.3
+    
+# parameters for instance matching
+# across 2d images
+matcher_params:
+  merge_iou_thr: 0.25
+  merge_ioa_thr: 0.25
+  force_connected: True
+
