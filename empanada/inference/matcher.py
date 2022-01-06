@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from skimage import measure
-from empanada.array_utils import *
+from empanada.inference.array_utils import *
 
 __all__ = [
     'fast_matcher',
@@ -97,7 +97,7 @@ class SequentialMatcher:
         self.merge_iou_thr = merge_iou_thr
         self.merge_ioa_thr = merge_ioa_thr
         self.assign_new = assign_new
-        self.next_label = 1
+        self.next_label = label_divisor + 1
         self.target_seg = None
         self.force_connected = force_connected
         
@@ -133,7 +133,10 @@ class SequentialMatcher:
                 target_pan_seg[tuple(rp.coords.T)] = rp.label
         
         self.target_seg = target_instance_seg
-        self.next_label = self.target_seg.max() + 1
+        # only update the next label if target seg had an object
+        obj_max = self.target_seg.max()
+        if obj_max > 0:
+            self.next_label = obj_max + 1
         
         return target_pan_seg
         

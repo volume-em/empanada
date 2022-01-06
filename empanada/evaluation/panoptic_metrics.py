@@ -1,7 +1,5 @@
 import numpy as np
 
-__all__ = ['panoptic_quality']
-
 def panoptic_quality(
     gt_matched, 
     gt_unmatched,

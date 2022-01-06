@@ -16,8 +16,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 __all__ = [
-    'MitoData', 
-    #'MitoDataQueue'
+    'MitoData', 'MitoDataQueue'
 ]
     
 def heatmap_and_offsets(sl2d, heatmap_sigma=6):
@@ -44,7 +43,7 @@ def heatmap_and_offsets(sl2d, heatmap_sigma=6):
     # apply a gaussian filter to spread the centers
     heatmap = cv2.GaussianBlur(heatmap, ksize=(0, 0), 
                                sigmaX=heatmap_sigma, sigmaY=heatmap_sigma, 
-                               borderType=cv2.BORDER_REFLECT_101)
+                               borderType=cv2.BORDER_CONSTANT)
     
     hmax = heatmap.max()
     if hmax > 0:
@@ -185,7 +184,7 @@ class _BaseDataset(Dataset):
     def __getitem__(self, idx):
         raise NotImplementedError
 
-#@copy_paste_class
+@copy_paste_class
 class MitoData(_BaseDataset):
     def __init__(
         self, 
@@ -199,7 +198,7 @@ class MitoData(_BaseDataset):
         )
         
         # used for copy-paste
-        #self._split_transforms()
+        self._split_transforms()
         
     def load_example(self, idx):
         # get image and mask
@@ -216,21 +215,21 @@ class MitoData(_BaseDataset):
         # convert all of the target segmentations to masks
         # bboxes are expected to be (y1, x1, y2, x2, category_id, mask_id)
         masks = []
-        #bboxes = []
+        bboxes = []
         for ix, rp in enumerate(measure.regionprops(mask)):
             rp_mask = np.zeros_like(mask)
             rp_mask[tuple(rp.coords.T)] = 1
             masks.append(rp_mask)
-            #rpb = rp.bbox
+            rpb = rp.bbox
             # category_id is default 1 for mitos
-            #coco_bbox = (rpb[1], rpb[0], rpb[3], rpb[2], 1, ix)
-            #bboxes.append(coco_bbox)
+            coco_bbox = (rpb[1], rpb[0], rpb[3], rpb[2], 1, ix)
+            bboxes.append(coco_bbox)
             
         #pack outputs into a dict
         output = {
             'image': image,
             'masks': masks,
-            #'bboxes': bboxes
+            'bboxes': bboxes
         }
         
         return self.transforms(**output)
@@ -238,7 +237,7 @@ class MitoData(_BaseDataset):
     def __getitem__(self, idx):
         # transformed and paste example
         f = self.impaths[idx]
-        data = self.load_example(idx)#pasted_example(idx)
+        data = self.load_pasted_example(idx) #self.load_example(idx)
         
         # create semantic seg, heatmaps, and centers
         # for pasted examples

@@ -12,7 +12,8 @@ from collections import deque
 __all__ = [
     'InferenceEngine',
     'MedianInferenceEngine',
-    #'QueueInferenceEngine',
+    'QueueInferenceEngine',
+    'MultiGPUInferenceEngine',
     'MultiScaleInferenceEngine'
 ]
 
@@ -34,7 +35,6 @@ class FeatureDeque(deque):
             # stack features along the queue dimension 
             # L x (N, C, H, W) -> (N, C, L, H, W) for each scale
             scale_stack = torch.stack(scale_stack, dim=2)
-            
             stacks.append(scale_stack)
             
         return stacks
@@ -105,7 +105,7 @@ class InferenceEngine:
         
         # move image to same device as the model
         device = next(self.model.parameters()).device
-        image = image.to(device)
+        image = image.to(device, non_blocking=True)
         
         # infer labels and postprocess
         model_out = self.infer(image)
@@ -204,6 +204,51 @@ class MedianInferenceEngine(InferenceEngine):
         
         pan_seg = self.postprocess(
             median_out['sem'], median_out['ctr_hmp'], median_out['offsets']
+        )
+        
+        return pan_seg
+    
+class MultiGPUInferenceEngine(InferenceEngine):
+    def __init__(
+        self,
+        model,
+        thing_list,
+        label_divisor=1000, 
+        stuff_area=64, 
+        void_label=0,
+        nms_threshold=0.1,
+        nms_kernel=7,
+        confidence_thr=0.5,
+        **kwargs
+    ):
+        super().__init__(
+            model, thing_list, label_divisor, stuff_area, 
+            void_label, nms_threshold, nms_kernel, confidence_thr,
+            **kwargs
+        )
+        
+    def get_instance_cells(self, ctr_hmp, offsets):
+        # first find the object centers
+        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
+
+        # no objects, return zeros
+        if ctr.size(0) == 0:
+            return torch.zeros_like(ctr_hmp)
+        
+        return group_pixels(ctr, offsets, step=1)
+    
+    def get_panoptic_seg(self, sem, instance_cells):
+        # keep only label for instance classes
+        instance_seg = torch.zeros_like(sem)
+        for thing_class in self.thing_list:
+            instance_seg[sem == thing_class] = 1
+            
+        # map object ids
+        instance_seg = (instance_seg * instance_cells[None]).long()
+        
+        pan_seg = merge_semantic_and_instance(
+            sem, instance_seg, self.label_divisor, self.thing_list,
+            self.stuff_area, self.void_label
         )
         
         return pan_seg
@@ -318,14 +363,15 @@ class MultiScaleInferenceEngine:
         self.base_model = base_model.eval()
         self.render_model = render_model.eval()
         
-        self.device = device
         if device == 'gpu' and torch.cuda.is_available():
             # generically load onto any gpu
             self.base_model = self.base_model.cuda()
             self.render_model = self.render_model.cuda()
+            self.device = 'cuda:0'
         elif torch.cuda.is_available():
             self.base_model = self.base_model.to(device)
             self.render_model = self.render_model.to(device)
+            self.device = device
         else:
             print(f'Using CPU, this may be slow.')
             self.device = 'cpu'
@@ -389,6 +435,31 @@ class MultiScaleInferenceEngine:
         return group_pixels(ctr, offsets, step=4).float()[None] # (1, 1, H, W)
     
     @torch.no_grad()
+    def upsample_logits_and_cells(
+        self,
+        sem_logits,
+        coarse_sem_seg_logits, 
+        features, 
+        instance_cells,
+        scale_factor
+    ):
+        # apply render model
+        if scale_factor >= 2:
+            instance_cells = F.interpolate(instance_cells, scale_factor=scale_factor, mode='nearest')
+
+            # each forward pass upsamples sem_logits by a factor of 2
+            for _ in range(int(math.log(scale_factor, 2))):
+                sem_logits = self.render_model(sem_logits, coarse_sem_seg_logits, features)
+
+        # apply classification activation and harden
+        if sem_logits.size(1) > 1:
+            sem = F.softmax(sem_logits, dim=1)
+        else:
+            sem = torch.sigmoid(sem_logits)
+
+        return sem, sem_logits, instance_cells
+
+    @torch.no_grad()
     def postprocess(self, coarse_sem_seg_logits, features, instance_cells):
         # generate masks for all scales
         pan_pyramid = []
@@ -397,20 +468,12 @@ class MultiScaleInferenceEngine:
         for scale in self.scales[::-1]: # loop from smallest to largest scale
             # determine the scale factor for upsampling the instance cells
             scale_factor = seg_scale / scale
-            if scale_factor >= 2:
-                instance_cells = F.interpolate(instance_cells, scale_factor=scale_factor, mode='nearest')
 
-                # each forward pass upsamples sem_logits by a factor of 2
-                for _ in range(int(scale_factor / 2)):
-                    sem_logits = self.render_model(sem_logits, coarse_sem_seg_logits, features)
-                    
-                seg_scale /= scale_factor
+            sem, sem_logits, instance_cells = self.upsample_logits_and_cells(
+                sem_logits, coarse_sem_seg_logits, features, instance_cells, scale_factor
+            )
 
-            # apply classification activation and harden
-            if sem_logits.size(1) > 1:
-                sem = F.softmax(sem_logits, dim=1)
-            else:
-                sem = torch.sigmoid(sem_logits)
+            seg_scale /= scale_factor
 
             sem = self._harden_seg(sem)[0]
 
@@ -477,5 +540,3 @@ class MultiScaleInferenceEngine:
         pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells)
 
         return pan_seg
-
-

@@ -8,6 +8,7 @@ from empanada.models.blocks import *
 from empanada.models import encoders
 from einops import rearrange
 from typing import List
+from copy import deepcopy
 
 backbones = sorted(name for name in encoders.__dict__
     if not name.startswith("__")
@@ -37,17 +38,22 @@ class _BaseModel(nn.Module):
         f'Invalid encoder name {encoder}, choices are {backbones}'
         
         self.encoder = encoders.__dict__[encoder]()
-        self.p2_resample = Resample2d(self.encoder.cfg.widths[0], fpn_dim)
+        self.p2_resample = Resample2d(int(self.encoder.cfg.widths[0]), fpn_dim)
         
         # pass input channels from stages 2-4 only (1/8->1/32 resolutions)
         # N.B. EfficientDet BiFPN uses compound scaling rules that we ignore
-        self.semantic_fpn = BiFPN(self.encoder.cfg.widths[1:].tolist(), fpn_dim, fpn_layers)
+        if 'resnet' in encoder:
+            widths = self.encoder.cfg.widths[1:].tolist()
+        else:
+            widths = self.encoder.cfg.widths[1:]
+            
+        self.semantic_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers)
         self.semantic_decoder = BiFPNDecoder(fpn_dim)
         
         # separate BiFPN for instance-level predictions
         # following PanopticDeepLab
         if ins_decoder:
-            self.instance_fpn = BiFPN(self.encoder.cfg.widths[1:].tolist(), fpn_dim, fpn_layers)
+            self.instance_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers)
             self.instance_decoder = BiFPNDecoder(fpn_dim)
         else:
             self.instance_fpn = None
@@ -57,7 +63,7 @@ class _BaseModel(nn.Module):
         self.ins_xy = PanopticDeepLabHead(fpn_dim, 2)
         
         self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
-        
+
         # add classification head, if needed
         if confidence_head:
             assert confidence_bins is not None

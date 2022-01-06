@@ -154,7 +154,6 @@ class QuantizablePanopticDeepLab(nn.Module):
         return heads_out
             
     def forward(self, x):
-        x = x.contiguous(memory_format=torch.channels_last)
         x = self.quant(x)
             
         pyramid_features, semantic_x, instance_x = self._encode_decode(x)
