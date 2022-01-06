@@ -2,30 +2,32 @@ import os
 import time
 import argparse
 import mlflow
-import numpy as np
+import random
+
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.backends.cudnn as cudnn
 import torch.multiprocessing as mp
 import torch.distributed as dist
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
+
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from skimage import io
 from skimage import measure
 from matplotlib import pyplot as plt
 
 from empanada.losses import PanopticLoss
-from empanada.data import MitoData
 from empanada.inference.engines import InferenceEngine
+from empanada import data
 from empanada import metrics
 from empanada import models
 from empanada.config_loaders import load_train_config
-from empanada.data.sampler import DistributedWeightedSampler
-from empanada.data.transforms import CopyPaste, FactorPad
+from empanada.data.utils.sampler import DistributedWeightedSampler
+from empanada.data.utils.transforms import CopyPaste, FactorPad
 
 archs = sorted(name for name in models.__dict__
     if callable(models.__dict__[name])
@@ -46,9 +48,9 @@ augmentations = sorted(name for name in A.__dict__
     and name[0].isupper()
 )
 
-
-def relabel(id_map):
-    return measure.label(id_map)
+datasets = sorted(name for name in data.__dict__
+    if callable(models.__dict__[name])
+)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs panoptic deeplab training')
@@ -121,12 +123,8 @@ def main_worker(gpu, ngpus_per_node, config):
     # setup the model and pick dataset class
     model_arch = config['MODEL']['arch']
     model = models.__dict__[model_arch](**config['MODEL'])
-    if 'queue_len' in config['MODEL']['arch']:
-        data_cls = MitoDataQueue
-        aug_compose = A.ReplayCompose
-    else:
-        data_cls = MitoData
-        aug_compose = A.Compose
+    dataset_class_name = config['TRAIN']['dataset_class']
+    data_cls = data.__dict__[dataset_class_name]
         
     # load pre-trained weights, if using
     if config['TRAIN']['whole_pretraining'] is not None:
@@ -288,7 +286,7 @@ def main_worker(gpu, ngpus_per_node, config):
         
     config['aug_string'] = ','.join(config['aug_string'])
         
-    tfs = aug_compose([
+    tfs = A.Compose([
         *dataset_augs,
         A.Normalize(**norms),
         ToTensorV2()
@@ -320,7 +318,7 @@ def main_worker(gpu, ngpus_per_node, config):
     )
 
     if config['EVAL']['eval_dir'] is not None:
-        eval_tfs = aug_compose([
+        eval_tfs = A.Compose([
             FactorPad(128), # pad image to be divisible by 128
             A.Normalize(**norms),
             ToTensorV2()
@@ -333,7 +331,8 @@ def main_worker(gpu, ngpus_per_node, config):
         
         # pick images to track during validation
         if config['EVAL']['eval_track_indices'] is None:
-            config['EVAL']['eval_track_indices'] = np.random.randint(0, len(eval_loader), size=(8,)).tolist()
+            # randomly pick 8 examples from eval set to track
+            config['EVAL']['eval_track_indices'] = [random.randint(0, len(eval_dataset)) for _ in range(8)]
         
     else:
         eval_loader = None
@@ -628,8 +627,8 @@ def validate(
             
             # gt and prediction
             h, w = image.shape
-            gt = relabel(target['pan_seg'].squeeze().cpu().numpy()[:h, :w])
-            pred = relabel(output['pan_seg'].squeeze().cpu().numpy()[:h, :w])
+            gt = measure.label(target['pan_seg'].squeeze().cpu().numpy()[:h, :w])
+            pred = measure.label(output['pan_seg'].squeeze().cpu().numpy()[:h, :w])
             
             artifact_path = 'mlruns/' + mlflow.get_artifact_uri().split('/mlruns/')[-1]
             

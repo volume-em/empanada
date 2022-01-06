@@ -1,2 +1,1 @@
-from empanada.data.mitodata import MitoData, MitoDataQueue
-from empanada.data.copy_paste import CopyPaste
+from empanada.data.single_class_instance_data import SingleClassInstanceDataset
