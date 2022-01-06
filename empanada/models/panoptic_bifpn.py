@@ -3,6 +3,7 @@ import torch.nn as nn
 from empanada.models import encoders
 from empanada.models.decoders import BiFPN, BiFPNDecoder
 from empanada.models.heads import PanopticDeepLabHead
+from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.blocks import *
 from empanada.models import encoders
 from einops import rearrange
@@ -77,54 +78,44 @@ class _BaseModel(nn.Module):
     def _forward_encoder(self, x):
         return self.encoder(x)
             
-    def _forward_fpn(self, x: List[torch.Tensor], kind: str='semantic'):
-        if kind == 'semantic':
-            return self.semantic_fpn(x)
-        elif kind == 'instance':
-            return self.instance_fpn(x)
+    def _forward_decoders(self, x: List[torch.Tensor], p2_features):
+        semantic_pyr = self.semantic_fpn(x)
+        semantic_pyr = [p2_features] + semantic_pyr
+        semantic_x = self.semantic_decoder(semantic_pyr)
+
+        if self.instance_fpn is not None:
+            instance_pyr = self.instance_fpn(x)
+            instance_pyr = [p2_features] + instance_pyr
+            instance_x = self.instance_decoder(instance_pyr)
         else:
-            raise Exception(f'FPN must be semantic or instance, got {kind}.')
+            instance_x = semantic_x
+
+        return semantic_x, instance_x
             
-    def _forward_decoder(self, x: List[torch.Tensor], kind: str='semantic'):
-        if kind == 'semantic':
-            return self.semantic_decoder(x)
-        elif kind == 'instance':
-            return self.instance_decoder(x)
-        else:
-            raise Exception(f'Decoder must be semantic or instance, got {kind}.')
-        
+    def _apply_heads(self, semantic_x, instance_x):
+        # apply the semantic head
+        sem = self.semantic_head(semantic_x)
+        ctr_hmp = self.ins_center(instance_x)
+        offsets = self.ins_xy(instance_x)
+       
+        # return at original image resolution (4x)
+        output = {}
+        output['sem_logits'] = self.interpolate(sem)
+        output['ctr_hmp'] = self.interpolate(ctr_hmp)
+        output['offsets'] = self.interpolate(offsets)
+
+        return output
+
     def forward(self, x):
         pyramid_features: List[torch.Tensor] = self._forward_encoder(x)
         p2_features = self.p2_resample(pyramid_features[1])
         
         # only passes features from
         # 1/8 -> 1/32 resolutions (i.e. P3-P5)
-        semantic_fpn_features: List[torch.Tensor] = self._forward_fpn(pyramid_features[2:], kind='semantic')
+        semantic_x: List[torch.Tensor], instance_x: List[torch.Tensor] = \
+        self._forward_decoders(pyramid_features[2:], p2_features)
         
-        # resample and prepend 1/4 resolution (P2) 
-        # features for segmentation (following EfficientDet)
-        semantic_fpn_features = [p2_features] + semantic_fpn_features
-        
-        # decode features upwards through pyramid
-        semantic_x = self._forward_decoder(semantic_fpn_features[::-1], kind='semantic')
-        sem = self.semantic_head(semantic_x)
-        
-        if self.instance_fpn is not None:
-            instance_fpn_features = self._forward_fpn(pyramid_features[2:], kind='instance')
-            instance_fpn_features = [p2_features] + instance_fpn_features
-            instance_x = self._forward_decoder(instance_fpn_features[::-1], kind='instance')
-            
-            ctr_hmp = self.ins_center(instance_x)
-            offsets = self.ins_xy(instance_x)
-        else:
-            ctr_hmp = self.ins_center(semantic_x)
-            offsets = self.ins_xy(semantic_x)
-        
-        # return at original image resolution (4x)
-        output = {}
-        output['sem_logits'] = self.interpolate(sem)
-        output['ctr_hmp'] = self.interpolate(ctr_hmp)
-        output['offsets'] = self.interpolate(offsets)
+        output = self._apply_heads(semantic_x, instance_x)
         
         # classify the image annotation confidence
         if self.confidence_head is not None:
@@ -154,3 +145,48 @@ class PanopticBiFPN(_BaseModel):
             confidence_bins,
             **kwargs
         )
+
+class PanopticBiFPNPR(PanopticBiFPN):
+    def __init__(
+        self,
+        num_fc=3,
+        train_num_points=1024,
+        oversample_ratio=3,
+        importance_sample_ratio=0.75,
+        subdivision_steps=2,
+        subdivision_num_points=8192,
+        **kwargs
+    ):
+        super(PanopticBiFPNPR, self).__init__(**kwargs)
+        
+        # change semantic head from regular PDL head to 
+        # PDL head + PointRend
+        self.semantic_pr = PointRendSemSegHead(
+            self.decoder_channels, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points
+        )
+        
+    def _apply_heads(self, semantic_x, instance_x):
+        heads_out = {}
+        
+        sem = self.semantic_head(semantic_x)
+        ctr_hmp = self.ins_center(instance_x)
+        offsets = self.ins_xy(instance_x)
+        pr_out = self.semantic_pr(sem, semantic_x)
+        
+        if self.training:
+            # interpolate to original resolution (4x)
+            heads_out['sem_logits'] = self.interpolate(pr_out['sem_seg_logits'])
+            heads_out['sem_points'] = pr_out['point_logits']
+            heads_out['point_coords'] = pr_out['point_coords']
+        else:
+            # in eval mode interpolation is handled by point rend
+            heads_out['sem_logits'] = pr_out['sem_seg_logits']
+            
+        # resize to original image resolution (4x)
+        heads_out['ctr_hmp'] = self.interpolate(ctr_hmp)
+        heads_out['offsets'] = self.interpolate(offsets)
+        
+        return heads_out

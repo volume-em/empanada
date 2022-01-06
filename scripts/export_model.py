@@ -5,23 +5,26 @@ import torch
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader, WeightedRandomSampler
-from empanada.data import MitoData, CopyPaste
-from empanada.inference.postprocess import get_panoptic_segmentation
+from empanada import data 
+from empanada.data.utils.transforms import CopyPaste
 from empanada.models.panoptic_deeplab import *
 from empanada.models.quantization.panoptic_deeplab import *
+from empanada.config_loaders import load_train_config
 
 augmentations = sorted(name for name in A.__dict__
     if callable(A.__dict__[name]) and not name.startswith('__')
     and name[0].isupper()
 )
 
+datasets = sorted(name for name in data.__dict__
+    if callable(models.__dict__[name])
+)
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Exports an optionally quantized panoptic deeplab model')
     parser.add_argument('config', type=str, metavar='config', help='Path to a config yaml file')
-    parser.add_argument('model_state', type=str, metavar='model_state', help='Path to a model state dict')
     parser.add_argument('save_path', type=str, metavar='save_path', help='Path to a save the quantized model')
     parser.add_argument('-nc', type=int, default=32, metavar='nc', help='Number of calibration batches for quantization')
-    parser.add_argument('--half', action='store_true', help='Whether to store the model in half-precision')
     parser.add_argument('--quantize', action='store_true', help='Whether to quantize the model for CPU')
     return parser.parse_args()
 
@@ -52,7 +55,9 @@ def create_dataloader(config, norms):
     ])
     
     # create training dataset and loader
-    train_dataset = MitoData(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+    dataset_class_name = config['TRAIN']['dataset_class']
+    data_cls = data.__dict__[dataset_class_name]
+    train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
     if config['TRAIN']['additional_train_dirs'] is not None:
         for train_dir in config['TRAIN']['additional_train_dirs']:
             add_dataset = MitoData(train_dir, tfs, weight_gamma=config['TRAIN']['weight_gamma'])
@@ -74,13 +79,14 @@ def main():
     args = parse_args()
 
     # read the config file
-    with open(args.config, 'r') as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
+    config = load_train_config(args.config)
         
-    model_fpath = args.model_state
+    # get model path from train.py saving convention
+    config_name = os.path.basename(args.config).split('.yaml')[0]
+    model_fpath = os.path.join(config['TRAIN']['model_dir'], f"{config_name}_checkpoint.pth.tar")
+    
     save_path = args.save_path
     num_calibration_batches = args.nc
-    half = args.half
     quantize = args.quantize
     
     # create model directory if None
