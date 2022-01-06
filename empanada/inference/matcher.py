@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from skimage import measure
-from empanada.inference.array_utils import *
+from empanada.array_utils import *
 
 __all__ = [
     'fast_matcher',

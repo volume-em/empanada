@@ -1,0 +1,18 @@
+BASE: "./mmm_panoptic_bifpn.yaml"
+
+DATASET:
+  dataset_name: "MitoMegaMix_BiFPN_Mini"
+    
+MODEL:
+  arch: "PanopticBiFPN"
+  encoder: "regnety_800mf"
+  fpn_dim: 128
+  fpn_layers: 3
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_BiFPN_Mini"
+  
+  # pretraining parameters
+  encoder_pretraining: null
+  whole_pretraining: null
+  finetune_layer: "all"

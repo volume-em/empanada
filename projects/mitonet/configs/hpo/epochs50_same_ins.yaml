@@ -1,0 +1,12 @@
+BASE: "./epochs50_base.yaml"
+    
+MODEL:
+  arch: "PanopticDeepLabPR"
+  encoder: "resnet50" 
+  low_level_stages: [ 3, 2, 1 ]
+  low_level_channels_project: [ 128, 64, 32 ]
+  ins_decoder: True
+  ins_ratio: 1
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/PDPR_epoch50_same_ins"

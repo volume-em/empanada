@@ -1,0 +1,15 @@
+BASE: "./bifpn_epochs50_base.yaml"
+
+MODEL:
+  arch: "PanopticBiFPN"
+  #encoder: "regnety_3p2gf"
+  encoder: "resnet50"
+  num_classes: 1
+  fpn_dim: 224
+  fpn_layers: 5
+  ins_decoder: True
+  confidence_head: False
+  confidence_bins: 5
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/PB_epoch50_deeper_wider"

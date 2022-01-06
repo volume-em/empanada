@@ -1,5 +1,5 @@
 import numpy as np
-from empanada.inference.array_utils import rle_iou
+from empanada.array_utils import rle_iou
 
 def iou(
     gt_rle,

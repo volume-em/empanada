@@ -1,0 +1,7 @@
+BASE: "../mmm_panoptic_deeplab_pointrend.yaml"
+
+DATASET:
+  dataset_name: "MitoMegaMix_NoFinetune"
+    
+TRAIN:
+  finetune_layer: "none"

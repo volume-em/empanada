@@ -1,5 +1,5 @@
 import numpy as np
-from empanada.inference.array_utils import *
+from empanada.array_utils import *
 
 __all__ = [
     'remove_small_objects',

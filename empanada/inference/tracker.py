@@ -4,7 +4,7 @@ import numpy as np
 from skimage import measure
 from itertools import combinations
 from tqdm import tqdm
-from empanada.inference.array_utils import *
+from empanada.array_utils import *
 
 __all__ = [
     'InstanceTracker'

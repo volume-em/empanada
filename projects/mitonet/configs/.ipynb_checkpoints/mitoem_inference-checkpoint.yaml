@@ -1,0 +1,13 @@
+BASE: 'mmm_median_inference.yaml'
+
+# axes to predict for 3d
+axes: [ 'xy' ]
+
+# parameters for the inference engine
+engine_params:
+  median_kernel_size: 3
+
+# simple object size/shape filters
+filters:
+  - { name: "remove_small_objects", min_size: 2000 }
+  - { name: "remove_pancakes", min_span: 10 }

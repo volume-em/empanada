@@ -1,0 +1,5 @@
+BASE: "../mmm_median_inference.yaml"
+
+# parameters for the inference engine
+engine_params:
+  median_kernel_size: 1

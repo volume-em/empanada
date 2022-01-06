@@ -1,0 +1,10 @@
+BASE: "./bifpn_epochs50_base.yaml"
+
+DATASET:
+  dataset_name: "BIFPN_HPO_Up_To_Batch3b"
+
+MODEL:
+  fpn_dim: 128
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/PB_epoch50_thinner"

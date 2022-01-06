@@ -1,0 +1,5 @@
+BASE: "./epochs50_base.yaml"
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/PDPR_epoch50_no_pretrain"
+  encoder_pretraining: null

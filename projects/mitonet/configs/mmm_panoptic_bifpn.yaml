@@ -1,0 +1,31 @@
+BASE: "./mmm_panoptic_deeplab_pointrend.yaml"
+
+DATASET:
+  dataset_name: "MitoMegaMix_BiFPN"
+    
+MODEL:
+  arch: "PanopticBiFPN"
+  #encoder: "regnety_3p2gf"
+  encoder: "resnet50"
+  num_classes: 1
+  fpn_dim: 160
+  fpn_layers: 3
+  ins_decoder: True
+  confidence_head: False
+  confidence_bins: 5
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_BiFPN"
+  
+  # pretraining parameters
+  encoder_pretraining: "/data/IASEM/conradrw/models/pretrained_models/cem1.5m_swav_resnet50_200ep.pth.tar"
+  whole_pretraining: null
+  finetune_layer: "all"
+  
+  # set the lr schedule
+  lr_schedule: "OneCycleLR"
+  schedule_params:
+    max_lr: 0.003
+    epochs: 50
+    steps_per_epoch: 305
+    pct_start: 0.3

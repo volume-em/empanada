@@ -1,0 +1,34 @@
+BASE: "../mmm_panoptic_deeplab_pointrend.yaml"
+
+DATASET:
+  dataset_name: "HPO_Up_To_Batch3b"
+
+MODEL:
+  arch: "PanopticDeepLabPR"
+  encoder: "resnet50" 
+  low_level_stages: [ 3, 2, 1 ]
+  low_level_channels_project: [ 128, 64, 32 ]
+  ins_decoder: True
+  ins_ratio: 0.5
+
+TRAIN:
+  model_dir: "/data/IASEM/conradrw/models/PDPR_epoch50_base"
+  save_freq: 1
+  
+  # set the lr schedule
+  lr_schedule: "OneCycleLR"
+  schedule_params:
+    max_lr: 0.003
+    epochs: 50
+    steps_per_epoch: 305
+    pct_start: 0.3
+  
+  augmentations:
+    - { aug: "RandomScale", scale_limit: [ -0.5, 1 ]}
+    - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }
+    #- { aug: "RandomResizedCrop", height: 256, width: 256, scale: [ 0.5, 2 ], ratio: [ 0.8, 1.2 ] }
+    - { aug: "RandomCrop", height: 256, width: 256}
+    - { aug: "Rotate", limit: 180, border_mode: 0 }
+    - { aug: "RandomBrightnessContrast", brightness_limit: 0.2, contrast_limit: 0.2 }
+    - { aug: "HorizontalFlip" }
+    - { aug: "VerticalFlip" }
