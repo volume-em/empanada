@@ -6,7 +6,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mitonet.models.blocks import *
+from empanada.models.blocks import *
 from typing import List
 
 __all__ = [

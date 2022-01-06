@@ -1,8 +1,6 @@
 import json
 import numpy as np
-from empanada.array_utils import *
-
-__all__ = ['Evaluator']
+from empanada.inference.array_utils import *
 
 def rle_matcher(
     gt_labels,

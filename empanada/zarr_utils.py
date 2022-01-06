@@ -86,10 +86,20 @@ def zarr_fill_instances(array, instances, processes=4):
         ends = starts + instance_attrs['runs']
         
         start_zcoords = starts // (h * w)
-        end_zcoords = ends // (h * w)
-        assert np.allclose(start_zcoords, end_zcoords), \
-        "Run extends across z slices!"
-        
+        end_zcoords = (ends - 1) // (h * w)
+        if not np.allclose(start_zcoords, end_zcoords):
+            # this means a run extends across at least 
+            # 2 z slices so we need to separate the run
+            split_locs = np.where(start_zcoords != end_zcoords)[0]
+            for loc in split_locs:
+                insert_start = (start_zcoords[loc] + 1) * h * w
+                insert_end = ends[loc]
+                
+                starts = np.insert(starts, loc+1, insert_start)
+                ends = np.insert(ends, loc+1, insert_end)
+                # update the end to stop at last xy coord of z slice
+                ends[loc] = insert_start
+                
         start_xycoords = starts % (h * w)
         end_xycoords = ends % (h * w)
         instance_coords_2d[instance_id] = [start_zcoords, start_xycoords, end_xycoords]
