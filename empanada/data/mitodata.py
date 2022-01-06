@@ -11,12 +11,8 @@ from torch.utils.data import Dataset
 from copy import deepcopy
 from empanada.data.copy_paste import copy_paste_class
 
-# ignore bad warning from albumentations.ReplayCompose
-import warnings
-warnings.filterwarnings("ignore")
-
 __all__ = [
-    'MitoData', 'MitoDataQueue'
+    'MitoData'
 ]
     
 def heatmap_and_offsets(sl2d, heatmap_sigma=6):
@@ -75,7 +71,8 @@ class _BaseDataset(Dataset):
         data_dir, 
         transforms=None, 
         heatmap_sigma=6,
-        weight_gamma=None
+        weight_gamma=None,
+        has_confidence=False
     ):
         super(_BaseDataset, self).__init__()
         self.data_dir = data_dir
@@ -88,12 +85,19 @@ class _BaseDataset(Dataset):
         # images and masks as dicts ordered by subdirectory
         self.impaths_dict = {}
         self.mskpaths_dict = {}
-        self.confidences_dict = {}
+        if has_confidence:
+            self.confidences_dict = {}
+        else:
+            self.confidences_dict = None
+            
         for sd in self.subdirs:
             self.impaths_dict[sd] = glob(os.path.join(data_dir, f'{sd}/images/*.tiff'))
             self.mskpaths_dict[sd] = glob(os.path.join(data_dir, f'{sd}/masks/*.tiff'))
-            with open(os.path.join(data_dir, f'{sd}/confidences.json'), mode='r') as f:
-                self.confidences_dict[sd] = json.load(f)
+            
+            # load confidences json if needed
+            if self.confidences_dict is not None:
+                with open(os.path.join(data_dir, f'{sd}/confidences.json'), mode='r') as f:
+                    self.confidences_dict[sd] = json.load(f)
         
         # calculate weights per example, if weight gamma is not None
         self.weight_gamma = weight_gamma
@@ -115,6 +119,7 @@ class _BaseDataset(Dataset):
         
         self.transforms = transforms
         self.heatmap_sigma = heatmap_sigma
+        self.has_confidence = has_confidence
         
     def __len__(self):
         return len(self.impaths)
@@ -123,6 +128,10 @@ class _BaseDataset(Dataset):
         # make a copy of self
         merged_dataset = deepcopy(self)
         
+        if self.has_confidence:
+            assert add_data.confidences_dict is not None, \
+            "Cannot merge a dataset without confidence scores to one with confidence scores"
+        
         # add the dicts and append lists/dicts
         for sd in add_dataset.impaths_dict.keys():
             if sd in merged_dataset.impaths_dict:
@@ -130,14 +139,16 @@ class _BaseDataset(Dataset):
                 merged_dataset.impaths_dict[sd] += add_dataset.impaths_dict[sd]
                 merged_dataset.mskpaths_dict[sd] += add_dataset.mskpaths_dict[sd]
                 #concat dicts of paths and confidences together
-                merged_dataset.confidences_dict[sd] = {
-                    **merged_dataset.confidences_dict[sd], **add_dataset.confidences_dict[sd]
-                }
+                if self.has_confidence:
+                    merged_dataset.confidences_dict[sd] = {
+                        **merged_dataset.confidences_dict[sd], **add_dataset.confidences_dict[sd]
+                    }
             else:
                 merged_dataset.impaths_dict[sd] = add_dataset.impaths_dict[sd]
                 merged_dataset.mskpaths_dict[sd] = add_dataset.mskpaths_dict[sd]
                 # concat dicts of paths and confidences together
-                merged_dataset.confidences_dict[sd] = add_dataset.confidences_dict[sd]
+                if self.has_confidence:
+                    merged_dataset.confidences_dict[sd] = add_dataset.confidences_dict[sd]
         
         # recalculate weights
         if merged_dataset.weight_gamma is not None:
@@ -191,10 +202,11 @@ class MitoData(_BaseDataset):
         data_dir, 
         transforms=None, 
         heatmap_sigma=6,
-        weight_gamma=0.3
+        weight_gamma=0.3,
+        has_confidence=False
     ):
         super(MitoData, self).__init__(
-            data_dir, transforms, heatmap_sigma, weight_gamma
+            data_dir, transforms, heatmap_sigma, weight_gamma, has_confidence
         )
         
         # used for copy-paste
@@ -205,8 +217,7 @@ class MitoData(_BaseDataset):
         f = self.impaths[idx]
         image = cv2.imread(f, 0)
         mask = cv2.imread(self.mskpaths[idx], -1)
-        assert mask.dtype == np.uint8, f'Mask {self.mskpaths[idx]} not 8-bit!'
-
+ 
         data = {}
         # add channel dimension if needed
         if image.ndim == 2:
@@ -237,7 +248,7 @@ class MitoData(_BaseDataset):
     def __getitem__(self, idx):
         # transformed and paste example
         f = self.impaths[idx]
-        data = self.load_pasted_example(idx) #self.load_example(idx)
+        data = self.load_pasted_example(idx)
         
         # create semantic seg, heatmaps, and centers
         # for pasted examples
@@ -262,122 +273,16 @@ class MitoData(_BaseDataset):
         output['ctr_hmp'] = heatmap
         output['offsets'] = offsets
 
-        # THIS DOESN'T WORK FOR COPY-PASTE!
+        # THIS DOESN'T GIVE PASTED IMAGE FNAME
         fdirs = f.split('/')
         subdir = fdirs[fdirs.index('images') - 1] # subdir is 1 before images dir
         output['fname'] = f
         
         # confidences are 1-5, subtract 1 to have 0-4 (for cross entropy loss)
-        output['conf'] = self.confidences_dict[subdir][os.path.basename(f)] - 1
+        if self.has_confidence:
+            output['conf'] = self.confidences_dict[subdir][os.path.basename(f)] - 1
 
         # the last step is to binarize the mask for semantic segmentation
         output['sem'] = (ins_mask > 0).float()
 
         return output
-    
-class MitoDataQueue(_BaseDataset):
-    def __init__(
-        self, 
-        data_dir, 
-        transforms=None, 
-        heatmap_sigma=6,
-        weight_gamma=0.3
-    ):
-        super(MitoDataQueue, self).__init__(
-            data_dir, transforms, heatmap_sigma, weight_gamma
-        )
-        
-    def __getitem__(self, idx):
-        # get image and mask
-        f = self.impaths[idx]
-        stack = io.imread(f)
-        mask = cv2.imread(self.mskpaths[idx], -1)
-        assert mask.dtype == np.uint8
-
-        # apply initial transform to first image and mask
-        if self.transforms is not None:
-            transformed = self.transforms(image=stack[0], mask=mask)
-            
-            tf_stack = [transformed['image']]
-            for image in stack[1:]:
-                tf_stack.append(
-                    A.ReplayCompose.replay(transformed['replay'], image=image)['image']
-                )
-            
-            stack = torch.cat(tf_stack, dim=0)
-            
-        output = {}
-        output['image'] = stack[None] # (L, H, W) -> (1, L, H, W)
-        output['mask'] = transformed['mask']
-        
-        # add the filename to output dict
-        output['fname'] = f
-        
-        # if not in inference mode, add the heatmap and centers
-        if 'mask' in output:
-            mask = output['mask']
-            heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
-            output['ctr_hmp'] = heatmap
-            output['offsets'] = offsets
-            
-            #the last step is to binarize the mask for semantic segmentation
-            output['sem'] = (mask > 0).float()
-            del output['mask']
-
-        return output
-    
-"""
-class MitoData(_BaseDataset):
-    def __init__(
-        self, 
-        data_dir, 
-        tfs=None, 
-        heatmap_sigma=6,
-        weight_gamma=0.3
-    ):
-        super(MitoData, self).__init__(
-            data_dir, tfs, heatmap_sigma, weight_gamma
-        )
-
-    def __getitem__(self, idx):
-        # get image and mask
-        f = self.impaths[idx]
-        image = cv2.imread(f, 0)
-        
-        assert image.ndim == 2 or image.shape[2] == 1, \
-        f'Dataset expects single channel grayscale got {image.shape}'
-        
-        mask = cv2.imread(self.mskpaths[idx], -1)
-        assert mask.dtype == np.uint8
-
-        data = {}
-        # add channel dimension if needed
-        if image.ndim == 2:
-            image = image[..., None]
-            
-        data['image'] = image
-        data['mask'] = mask
-
-        if self.tfs is not None:
-            output = self.tfs(**data)
-            
-        # add the filename to output dict
-        output['fname'] = f
-        
-        # if not in inference mode, add the heatmap and centers
-        if 'mask' in output:
-            mask = output['mask']
-            heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
-            output['ctr_hmp'] = heatmap
-            output['offsets'] = offsets
-            
-            fdirs = f.split('/')
-            subdir = fdirs[fdirs.index('images') - 1] # subdir is 1 before images dir
-            output['conf'] = self.confidences_dict[subdir][os.path.basename(f)]
-            
-            # the last step is to binarize the mask for semantic segmentation
-            output['sem'] = (mask > 0).float()
-            del output['mask']
-
-        return output
-"""
