@@ -5,6 +5,10 @@ from empanada.models.quantization import encoders
 from empanada.models import PanopticBiFPN
 from typing import List
 
+__all__ = [
+    'QuantizablePanopticBiFPN'
+]
+
 def _replace_relu(module):
     reassign = {}
     for name, mod in module.named_children():
@@ -49,6 +53,20 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
         x = self.quant(x)
         features: List[torch.Tensor] = self.encoder(x)
         return [self.dequant(t) for t in features]
+    
+    def _apply_heads(self, semantic_x, instance_x):
+        heads_out = {}
+        sem = self.semantic_head(semantic_x)
+        ctr_hmp = self.ins_center(instance_x)
+        offsets = self.ins_xy(instance_x)
+        
+        # return at quarter resolution
+        heads_out['sem_logits'] = sem
+        heads_out['ctr_hmp'] = ctr_hmp
+        heads_out['offsets'] = offsets
+        heads_out['semantic_x'] = semantic_x
+        
+        return heads_out
     
     def fuse_model(self):
         self.encoder.fuse_model()

@@ -16,7 +16,8 @@ backbones = sorted(name for name in encoders.__dict__
 )
 
 __all__ = [
-    'PanopticBiFPN'
+    'PanopticBiFPN',
+    'PanopticBiFPNPR'
 ]
 
 class _BaseModel(nn.Module):

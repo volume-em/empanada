@@ -4,11 +4,15 @@ import argparse
 import torch
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from torch.utils.data import DataLoader, WeightedRandomSampler
 from empanada import data 
 from empanada.data.utils.transforms import CopyPaste
-from empanada.models.panoptic_deeplab import *
-from empanada.models.quantization.panoptic_deeplab import *
+from torch.utils.data import DataLoader, WeightedRandomSampler
+
+from empanada import models
+from empanada.models import quantization as quant_models
+from empanada.models.point_rend import PointRendSemSegHead
+from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
+
 from empanada.config_loaders import load_train_config
 
 augmentations = sorted(name for name in A.__dict__
@@ -25,7 +29,6 @@ def parse_args():
     parser.add_argument('config', type=str, metavar='config', help='Path to a config yaml file')
     parser.add_argument('save_path', type=str, metavar='save_path', help='Path to a save the quantized model')
     parser.add_argument('-nc', type=int, default=32, metavar='nc', help='Number of calibration batches for quantization')
-    parser.add_argument('--quantize', action='store_true', help='Whether to quantize the model for CPU')
     return parser.parse_args()
 
 def create_dataloader(config, norms):
@@ -98,8 +101,8 @@ def main():
 
     # validate parameters
     model_arch = config['MODEL']['arch']
-    assert model_arch in ['PanopticDeepLab', 'PanopticDeepLabPR'], \
-    "Only Panoptic-DeepLab currently supports quantization!"
+    base_arch = model_arch[:-len('PR')]
+    base_quant_arch = 'Quantizable' + base_arch
     
     # load the state
     state = torch.load(model_fpath, map_location='cpu')
@@ -112,54 +115,73 @@ def main():
             state_dict[k[len("module."):]] = state_dict[k]
             # delete renamed or unused k
             del state_dict[k]
-    
-    # create the model and prepare for quantization
-    if args.quantize:
-        if model_arch == 'PanopticDeepLab':
-            model = QuantizablePanopticDeepLab(**config['MODEL'])
+
+    # prep state dict for base and render models
+    base_state_dict = {}
+    pr_state_dict = {}
+
+    for key in list(state_dict.keys()):
+        if key.startswith('semantic_pr.'):
+            pr_state_dict[key[len('semantic_pr.'):]] = state_dict[key]
         else:
-            model = QuantizablePanopticDeepLabPR(**config['MODEL'])
-    else:
-        if model_arch == 'PanopticDeepLab':
-            model = PanopticDeepLab(**config['MODEL'])
-        else:
-            model = PanopticDeepLabPR(**config['MODEL'])
-        
-    model.load_state_dict(state_dict)
-    if args.quantize:
-        print('Quantizing model...')
-        
-        # create the data loader
-        train_loader = create_dataloader(config, norms)
-        
-        model.eval()
-        model.fuse_model()
+            base_state_dict[key] = state_dict[key]
+
+    # create the GPU and CPU versions of the models
+    gpu_base_model = models.__dict__[base_arch](**config['MODEL'])
+    gpu_render_model = PointRendSemSegHead(**config['MODEL'])
     
-        # specify quantization configuration
-        model.qconfig = torch.quantization.get_default_qconfig('fbgemm')
-        torch.quantization.prepare(model, inplace=True)
-
-        # calibrate with the training set
-        for i, batch in enumerate(train_loader):
-            print(f'Calibration batch {i + 1} of {num_calibration_batches}')
-            with torch.no_grad():
-                images = batch['image']
-                output = model(images)
-
-            if i == num_calibration_batches - 1:
-                break
-
-        torch.quantization.convert(model, inplace=True)
-        print('Model quantized successfully!')
-    elif args.half:
-        model.half()
-        model.eval()
-        print('Model converted to half precision!')
-    else:
-        model.eval()
+    # load the state dicts
+    gpu_base_model.load_state_dict(base_state_dict, strict=True)
+    gpu_render_model.load_state_dict(pr_state_dict, strict=True)
     
-    torch.jit.save(torch.jit.script(model), save_path)
-    print(f'Model exported to {save_path}')
+    # export the gpu models
+    gpu_base_model.eval()
+    gpu_base_model.fuse_model()
+    gpu_base_model.cuda()
+    gpu_base_model = torch.jit.script(gpu_base_model) 
+
+    gpu_render_model.eval()
+    gpu_render_model.cuda()
+    gpu_render_model = torch.jit_script(gpu_render_model)
+
+    torch.jit.save(gpu_base_model, os.path.join(save_path, f'{model_arch}_{config_name}_base_gpu.pth')) 
+    torch.jit.save(gpu_render_model, os.path.join(save_path, f'{model_arch}_{config_name}_render_gpu.pth')) 
+    print('Exported GPU models successfully!')
+
+    cpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=True) 
+    cpu_render_model = QuantizablePointRendSemSegHead(**config['MODEL'])
+    cpu_base_model.load_state_dict(base_state_dict, strict=True)
+    cpu_render_model.load_state_dict(pr_state_dict, strict=True)
+
+    print('Quantizing model...')
+    
+    # create the data loader
+    train_loader = create_dataloader(config, norms)
+    
+    cpu_base_model.eval()
+    cpu_base_model.fuse_model()
+    cpu_render_model.eval()
+    
+    # specify quantization configuration
+    cpu_base_model.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+    torch.quantization.prepare(cpu_base_model, inplace=True)
+
+    # calibrate with the training set
+    for i, batch in enumerate(train_loader):
+        print(f'Calibration batch {i + 1} of {num_calibration_batches}')
+        with torch.no_grad():
+            images = batch['image']
+            output = cpu_base_model(images)
+
+        if i == num_calibration_batches - 1:
+            break
+
+    torch.quantization.convert(cpu_base_model, inplace=True)
+    print('Model quantized successfully!')
+    
+    torch.jit.save(torch.jit.script(cpu_base_model), os.path.join(save_path, f'{model_arch}_{config_name}_base_cpu.pth'))
+    torch.jit.save(torch.jit.script(cpu_render_model), os.path.join(save_path, f'{model_arch}_{config_name}_render_cpu.pth'))
+    print('Exported CPU models successfully!')
     
 if __name__ == "__main__":
     main()

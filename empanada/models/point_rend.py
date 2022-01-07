@@ -203,7 +203,8 @@ class PointRendSemSegHead(nn.Module):
         oversample_ratio=3,
         importance_sample_ratio=0.75,
         subdivision_steps=2,
-        subdivision_num_points=8192
+        subdivision_num_points=8192,
+        **kwargs
     ):
         super(PointRendSemSegHead, self).__init__()
         self.train_num_points = train_num_points
