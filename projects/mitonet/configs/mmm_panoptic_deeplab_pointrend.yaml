@@ -1,11 +1,13 @@
 DATASET:
   dataset_name: "MitoMegaMix"
   class_names: [ "mito" ]
+  labels: [ 1 ]
+  thing_list: [ 1 ]
   norms: { mean: 0.508979, std: 0.148561 }
-    
+
 MODEL:
   arch: "PanopticDeepLabPR"
-  encoder: "resnet50" 
+  encoder: "resnet50"
   num_classes: 1
   stage4_stride: 16
   decoder_channels: 256
@@ -16,7 +18,7 @@ MODEL:
   ins_decoder: True
   confidence_head: False
   confidence_bins: 5
-  
+
   # point_rend arguments
   num_fc: 3
   train_num_points: 1024
@@ -38,18 +40,18 @@ TRAIN:
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
-    
+
   model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_DeepLab_PointRend"
   save_freq: 1
-  
+
   # path to .pth file for resuming training
   resume: null
-  
+
   # pretraining parameters
   encoder_pretraining: "/data/IASEM/conradrw/models/pretrained_models/cem1.5m_swav_resnet50_200ep.pth.tar"
   whole_pretraining: null
   finetune_layer: "all"
-  
+
   # set the lr schedule
   lr_schedule: "OneCycleLR"
   schedule_params:
@@ -63,7 +65,7 @@ TRAIN:
   optimizer: "AdamW"
   optimizer_params:
     weight_decay: 0.1
-    
+
   # criterion parameters
   criterion_params:
     ce_weight: 1
@@ -79,12 +81,12 @@ TRAIN:
   metrics: [ "IoU" ]
   metric_params:
     topk: 1
-    
+
   # dataset parameters
   batch_size: 64
   weight_gamma: 0.7
   workers: 8
-  
+
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.5, 1 ]}
     - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }
@@ -102,20 +104,20 @@ TRAIN:
   rank: 0
   dist_url: "tcp://localhost:10001"
   dist_backend: "nccl"
-  
+
 EVAL:
   eval_dir: "/data/IASEM/conradrw/data/panoptic/test_eval"
   eval_track_indices: [ 131, 45, 268, 96, 252, 173, 53, 266, 138, 222, 127, 21 ] # from test_eval
   eval_track_freq: 10
   epochs_per_eval: 1
-  
+
   # parameters needed for eval_metrics
   metrics: [ "IoU", "PQ" ]
   metric_params:
       topk: 1
       labels: [ 1 ]
       label_divisor: 1000
-  
+
   # parameters needed for inference
   engine_params:
     thing_list: [ 1 ]
