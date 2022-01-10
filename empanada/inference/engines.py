@@ -1,13 +1,17 @@
 import math
 import torch
 import torch.nn.functional as F
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 from empanada.inference.postprocess import (
-    find_instance_center, group_pixels,
+    factor_pad, find_instance_center, group_pixels,
     get_instance_segmentation,
     merge_semantic_and_instance,
     get_panoptic_segmentation
 )
 from collections import deque
+
 
 __all__ = [
     'InferenceEngine',
@@ -15,28 +19,6 @@ __all__ = [
     'MultiGPUInferenceEngine',
     'MultiScaleInferenceEngine'
 ]
-
-class FeatureDeque(deque):
-    def __init__(self, maxlen=None):
-        super().__init__(maxlen)
-
-    @property
-    def stacked(self):
-        stacks = []
-        if len(self) < self.maxlen:
-            return []
-
-        for i in range(len(self.items[0])): # scale index
-            scale_stack = []
-            for j in range(self.qlen): # queue index
-                scale_stack.append(self.items[j][i])
-
-            # stack features along the queue dimension
-            # L x (N, C, H, W) -> (N, C, L, H, W) for each scale
-            scale_stack = torch.stack(scale_stack, dim=2)
-            stacks.append(scale_stack)
-
-        return stacks
 
 class InferenceEngine:
     def __init__(
@@ -265,7 +247,7 @@ class MultiScaleInferenceEngine:
         nms_threshold=0.1,
         nms_kernel=7,
         confidence_thr=0.5,
-        output_upsample=1,
+        padding_factor=16,
         coarse_boundaries=True,
         device='gpu',
         **kwargs
@@ -291,9 +273,7 @@ class MultiScaleInferenceEngine:
 
         self.thing_list = thing_list
 
-        assert math.log(output_upsample, 2).is_integer(), \
-        f"Output upsampling must be log base 2, got {output_upsample}"
-        self.output_upsample = output_upsample
+        self.padding_factor = padding_factor
         self.coarse_boundaries = coarse_boundaries
 
         self.label_divisor = label_divisor
@@ -336,14 +316,14 @@ class MultiScaleInferenceEngine:
         return self.base_model(image)
 
     @torch.no_grad()
-    def get_instance_cells(self, ctr_hmp, offsets):
+    def get_instance_cells(self, ctr_hmp, offsets, upsampling=1):
         # if calculating coarse boundaries then
         # don't upsample from 1/4th resolution
         # coarse boundaries are faster and memory friendly
         # but can look "blocky" in the final segmentation
-        upsampling = 1 if self.coarse_boundaries else 4
-
-        if upsampling > 1:
+        scale_factor = 1 if self.coarse_boundaries else 4
+        
+        if scale_factor > 1:
             ctr_hmp = F.interpolate(ctr_hmp, scale_factor=scale_factor, mode='bilinear', align_corners=True)
             offsets = F.interpolate(offsets, scale_factor=scale_factor, mode='bilinear', align_corners=True)
 
@@ -387,12 +367,12 @@ class MultiScaleInferenceEngine:
         return sem, sem_logits, instance_cells
 
     @torch.no_grad()
-    def postprocess(self, coarse_sem_seg_logits, features, instance_cells):
+    def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
         sem_logits = coarse_sem_seg_logits.clone()
 
         # seg to be upsampled by factor of 4 and then
         # by factor of output_upsample
-        scale_factor = self.output_upsample * 4
+        scale_factor = upsampling * 4
 
         sem, sem_logits, instance_cells = self.upsample_logits_and_cells(
             sem_logits, coarse_sem_seg_logits, features, instance_cells, scale_factor
@@ -417,28 +397,34 @@ class MultiScaleInferenceEngine:
 
         return pan_seg
 
-    def end(self):
+    def empty_queue(self, upsampling=1):
         # any items past self.mid_idx remaining
         # in the queue are processed and returned
         final_segs = []
         for model_out in list(self.median_queue)[self.mid_idx + 1:]:
-            instance_cells = self.get_instance_cells(model_out['ctr_hmp'], model_out['offsets'])
-            final_segs.append(
-                self.postprocess(model_out['sem_logits'], model_out['semantic_x'], instance_cells)
-            )
+            h, w = model_out['size']
+            instance_cells = self.get_instance_cells(model_out['ctr_hmp'], model_out['offsets'], upsampling)
+            pan_seg = self.postprocess(model_out['sem_logits'], model_out['semantic_x'], instance_cells, upsampling)
+            final_segs.append(pan_seg[..., :(h * upsampling), :(w * upsampling)])
 
         return final_segs
 
-    def __call__(self, image):
+    def __call__(self, image, upsampling=1):
+        assert math.log(upsampling, 2).is_integer(),\
+        "Upsampling factor not log base 2!"
+        
         # check that image is 4d (N, C, H, W) and has a
         # batch dim of 1, larger batch size raises exception
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
+        h, w = image.size()[-2:]
+        image = factor_pad(image, self.padding_factor)
         image = image.to(self.device, non_blocking=True)
 
         # infer labels
         model_out = self.infer(image)
+        model_out['size'] = (h, w)
 
         # append results to median queue
         self.median_queue.append(model_out)
@@ -459,7 +445,10 @@ class MultiScaleInferenceEngine:
             raise Exception('Queue length cannot exceed maxlen!')
 
         # calculate the instance cells
-        instance_cells = self.get_instance_cells(median_out['ctr_hmp'], median_out['offsets'])
-        pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells)
+        instance_cells = self.get_instance_cells(median_out['ctr_hmp'], median_out['offsets'], upsampling)
+        pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells, upsampling)
+        
+        # remove padding from the pan_seg
+        pan_seg = pan_seg[..., :(h * upsampling), :(w * upsampling)]
 
         return pan_seg

@@ -20,27 +20,38 @@ from tqdm import tqdm
 from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.consensus import merge_objects3d
-from empanada.config_utils import load_config, load_inference_config
+from empanada.config_loaders import load_config, load_inference_config
 from empanada.inference import engines
 from empanada.inference.matcher import SequentialMatcher
 from empanada.inference.tracker import InstanceTracker
 from empanada.inference import filters
 
-def factor_pad_tensor(tensor, factor=128):
-    h, w = tensor.size()[2:]
-    pad_bottom = factor - h % factor if h % factor != 0 else 0
-    pad_right = factor - w % factor if w % factor != 0 else 0
-    if pad_bottom == 0 and pad_right == 0:
-        return tensor
-    else:
-        return nn.ZeroPad2d((0, pad_right, 0, pad_bottom))(tensor)
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs empanada model inference.')
-    parser.add_argument('model_config', type=str, metavar='model_config', help='Path to a model config yaml file')
-    parser.add_argument('infer_config', type=str, metavar='infer_config', help='Path to a inference config yaml file')
+    parser.add_argument('config', type=str, metavar='config', help='Path to a model config yaml file')
     parser.add_argument('volume_path', type=str, metavar='volume_path', help='Path to a Zarr volume')
-    parser.add_argument('--use-cpu', action='store_true', metavar='use_cpu', help='Whether to force inference to run on CPU.')
+    parser.add_argument('-mode', type=str, dest='mode', metavar='inference_mode', choices=['orthoplane', 'stack'],
+                        default='orthoplane', help='Pick orthoplane (xy, xz, yz) or stack (xy)')
+    parser.add_argument('-qlen', type=int, dest='qlen', metavar='qlen', choices=[1, 3, 5, 7, 9, 11],
+                        default=3, help='Length of median filtering queue, an odd integer')
+    parser.add_argument('-nmax', type=int, dest='label_divisor', metavar='label_divisor', choices=['orthoplane', 'stack'],
+                        default=20000, help='Maximum number of objects per instance class allowed in volume.')
+    parser.add_argument('-seg_thr', type=float, dest='seg_thr', metavar='seg_thr', default=0.3, 
+                        help='Segmentation confidence threshold (0-1)')
+    parser.add_argument('-nms_thr', type=float, dest='nms_thr', metavar='nms_thr', default=0.1, 
+                        help='Centroid confidence threshold (0-1)')
+    parser.add_argument('-nms_kernel', type=int, dest='nms_kernel', metavar='nms_kernel', default=3, 
+                        help='Minimum allowed distance, in pixels, between object centers')
+    parser.add_argument('-iou_thr', type=float, dest='iou_thr', metavar='iou_thr', default=0.25, 
+                        help='Minimum IoU score between objects in adjacent slices for label stiching')
+    parser.add_argument('-ioa_thr', type=float, dest='ioa_thr', metavar='ioa_thr', default=0.25, 
+                        help='Minimum IoA score between objects in adjacent slices for label merging')
+    parser.add_argument('-min_size', type=int, dest='min_size', metavar='min_size', default=500, 
+                        help='Minimum object size, in voxels, in the final 3d segmentation')
+    parser.add_argument('-min_span', type=int, dest='min_span', metavar='min_span', default=4, 
+                        help='Minimum number of consecutive slices that object must appear on in final 3d segmentation')
+    parser.add_argument('--fine-boundaries', action='store_true', help='Whether to calculate cells on full resolution image.')
+    parser.add_argument('--use-cpu', action='store_true', help='Whether to force inference to run on CPU.')
     return parser.parse_args()
 
 def run_forward_matchers(stack, axis, matchers, queue):
@@ -63,57 +74,49 @@ if __name__ == "__main__":
     args = parse_args()
 
     # read the config files
-    config = load_config(args.model_config)
-    infer_config = load_inference_config(args.infer_config)
-
-    # merge the config files
-    config['INFERENCE'] = infer_config
-
-    # validate filter parameters
-    filter_names = []
-    filter_kwargs = []
-    if 'filters' in config['INFERENCE']:
-        for f in config['INFERENCE']['filters']:
-            assert f['name'] in filters.__dict__
-            filter_names.append(f['name'])
-            del f['name']
-            filter_kwargs.append(f)
+    config = load_config(args.config)
 
     # load the base and render models from file or url
-    if os.path.isfile(model_config[f'base_model_{device}']):
-        base_model = torch.jit.load(model_config[f'base_model_{device}'])
+    device = 'gpu' if torch.cuda.is_available() and not args.use_cpu else 'cpu'
+    if os.path.isfile(config[f'base_model_{device}']):
+        base_model = torch.jit.load(config[f'base_model_{device}'])
     else:
-        base_model = torch.hub.load_state_dict_from_url(model_config[f'base_model_{device}'])
+        base_model = torch.hub.load_state_dict_from_url(config[f'base_model_{device}'])
 
-    if os.path.isfile(model_config[f'render_model_{device}']):
-        render_model = torch.jit.load(model_config[f'render_model_{device}'])
+    if os.path.isfile(config[f'render_model_{device}']):
+        render_model = torch.jit.load(config[f'render_model_{device}'])
     else:
-        render_model = torch.hub.load_state_dict_from_url(model_config[f'render_model_{device}'])
+        render_model = torch.hub.load_state_dict_from_url(config[f'render_model_{device}'])
 
-    base_model.eval()
-    render_model.eval()
-
-    # determine if using cpu or gpu
-    device = 'gpu' torch.cuda.is_available() and not args.use_cpu else 'cpu'
     if device == 'gpu':
         base_model = base_model.cuda()
         render_model = render_model.cuda()
 
+    # switch the models to eval mode
+    base_model.eval()
+    render_model.eval()
+
     # load the zarr volume
-    data = zarr.open(volume_path, mode='r+')
+    data = zarr.open(args.volume_path, mode='r+')
     volume = data['em']
     shape = volume.shape
 
-    # TODO: ANISOTROPY OPTIONS
-    axes = {'xy': 0, 'xz': 1, 'yz': 2}
-    axes = {plane: axes[plane] for plane in config['INFERENCE']['axes']}
+    if args.mode == 'orthoplane':
+        axes = {'xy': 0, 'xz': 1, 'yz': 2}
+    else:
+        axes = {'xy': 0}
+    
+    eval_tfs = A.Compose([
+        A.Normalize(**config['norms']),
+        ToTensorV2()
+    ])
 
     # create a separate tracker for
     # each prediction axis and each segmentation class
     trackers = {}
-    class_labels = config['INFERENCE']['labels']
-    thing_list = config['INFERENCE']['engine_params']['thing_list']
-    label_divisor = config['INFERENCE']['engine_params']['label_divisor']
+    class_labels = config['labels']
+    thing_list = config['thing_list']
+    label_divisor = args.label_divisor
     for axis_name, axis in axes.items():
         trackers[axis_name] = [
             InstanceTracker(class_id, label_divisor, volume.shape, axis_name)
@@ -127,26 +130,35 @@ if __name__ == "__main__":
         chunks = [None, None, None]
         chunks[axis] = 1
         chunks = tuple(chunks)
-        stack = data.create_dataset(f'{config_name}_panoptic_{axis_name}', shape=shape,
+        stack = data.create_dataset(f'panoptic_{axis_name}', shape=shape,
                                     dtype=np.uint64, chunks=chunks,
                                     overwrite=True)
 
         # prime the model for the given image dimension
         size = tuple([s for i,s in enumerate(shape) if i != axis])
         print(f'Priming models for {axis_name} inference...')
-        image = torch.randn((1, 1, *size))
-        for _ in range(2):
-            out = model(image)
-            out = pr_model(out['sem_logits'], out['sem_logits'], out['semantic_x'])
+        image = torch.randn((1, 1, *size), device='cuda' if device=='gpu' else 'cpu')
+        for _ in range(3):
+            out = base_model(image)
+            out = render_model(out['sem_logits'], out['sem_logits'], out['semantic_x'])
 
         # create the inference engine
-        engine = engines.MultiScaleInferenceEngine(
-            base_model, render_model, **config['engine_params'], device=device
+        inference_engine = engines.MultiScaleInferenceEngine(
+            base_model, render_model, 
+            thing_list=thing_list,
+            median_kernel_size=args.qlen,
+            label_divisor=label_divisor,
+            nms_threshold=args.nms_thr,
+            nms_kernel=args.nms_kernel,
+            confidence_thr=args.seg_thr,
+            padding_factor=config['padding_factor'],
+            coarse_boundaries=not args.fine_boundaries,
+            device=device
         )
 
         # create a separate matcher for each thing class
         matchers = [
-            SequentialMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
+            SequentialMatcher(thing_class, label_divisor, merge_iou_thr=args.iou_thr, merge_ioa_thr=args.ioa_thr)
             for thing_class in thing_list
         ]
 
@@ -162,25 +174,22 @@ if __name__ == "__main__":
         fill_index = 0
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
-            h, w = image.size()[2:]
-            image = factor_pad_tensor(image, config['padding_factor'])
-
             pan_seg = inference_engine(image)
+
             if pan_seg is None:
                 # building the queue
                 queue.put((fill_index, pan_seg))
                 continue
             else:
-                pan_seg = pan_seg[0]
-                pan_seg = pan_seg.squeeze()[:h, :w] # remove padding and unit dimensions
+                pan_seg = pan_seg.squeeze() # remove padding and unit dimensions
                 queue.put((fill_index, pan_seg.cpu().numpy()))
                 fill_index += 1
 
-        final_segs = inference_engine.end()
+        final_segs = inference_engine.empty_queue()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
                 #pan_seg = pan_seg[0]
-                pan_seg = pan_seg.squeeze()[:h, :w] # remove padding
+                pan_seg = pan_seg.squeeze() # remove padding
                 queue.put((fill_index, pan_seg.cpu().numpy()))
                 fill_index += 1
 
@@ -220,14 +229,13 @@ if __name__ == "__main__":
         for tracker in trackers[axis_name]:
             tracker.finish()
 
-        # apply any filters
-        if filter_names:
-            for filt,kwargs in zip(filter_names, filter_kwargs):
-                for tracker in trackers[axis_name]:
-                    filters.__dict__[filt](tracker, **kwargs)
+            # apply filters
+            filters.remove_small_objects(tracker, min_size=args.min_size)
+            filters.remove_pancakes(tracker, min_span=args.min_span)
+
 
     # create the final instance segmentations
-    for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
+    for class_id, class_name in zip(config['labels'], config['class_names']):
         # get the relevant trackers for the class_label
         print(f'Creating consensus segmentation for class {class_name}...')
 
@@ -243,41 +251,17 @@ if __name__ == "__main__":
 
             consensus_tracker.instances = merge_objects3d(class_trackers)
 
-            # apply filters to final merged segmentation
-            if filter_names:
-                for filt,kwargs in zip(filter_names, filter_kwargs):
-                    filters.__dict__[filt](consensus_tracker, **kwargs)
+            # apply filters
+            filters.remove_small_objects(consensus_tracker, min_size=args.min_size)
+            filters.remove_pancakes(consensus_tracker, min_span=args.min_span)
         else:
             consensus_tracker = class_trackers[0]
 
 
         # decode and fill the instances
         consensus_vol = data.create_dataset(
-            f'{config_name}_{class_name}_pred', shape=shape, dtype=np.uint64,
+            f'{class_name}_pred', shape=shape, dtype=np.uint64,
             overwrite=True, chunks=(1, None, None)
         )
         zarr_fill_instances(consensus_vol, consensus_tracker.instances)
-        consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
-
-    # run evaluation
-    semantic_metrics = {'IoU': iou}
-    instance_metrics = {'F1_50': f1_50, 'F1_75': f1_75, 'Precision_50': precision_50,
-                        'Precision_75': precision_75, 'Recall_50': recall_50, 'Recall_75': recall_75}
-    panoptic_metrics = {'PQ': panoptic_quality}
-    evaluator = Evaluator(semantic_metrics, instance_metrics, panoptic_metrics)
-
-    for class_name in config['DATASET']['class_names']:
-        gt_json = os.path.join(volume_path, f'{class_name}_gt.json')
-        pred_json = os.path.join(volume_path, f'{config_name}_{class_name}_pred.json')
-        results = evaluator(gt_json, pred_json)
-        results = {f'{class_name}_{k}': v for k,v in results.items()}
-
-        for k, v in results.items():
-            print(k, v)
-
-        run_id = state.get('run_id')
-        if run_id is not None:
-            volname = os.path.basename(volume_path).split('.zarr')[0][:20]
-            with mlflow.start_run(run_id=run_id) as run:
-                for k, v in results.items():
-                    mlflow.log_metric(f'{volname}_{k}', v, step=0)
+        consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
