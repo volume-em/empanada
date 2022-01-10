@@ -127,7 +127,7 @@ def main():
             base_state_dict[key] = state_dict[key]
 
     # create the GPU and CPU versions of the models
-    pr_nin = config['MODEL']['fpn_dim'] if 'fpn_dim' in config else config['MODEL']['decoder_channels']
+    pr_nin = config['MODEL']['fpn_dim'] if 'fpn_dim' in config['MODEL'] else config['MODEL']['decoder_channels']
     gpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=False)
     gpu_render_model = QuantizablePointRendSemSegHead(nin=pr_nin ,**config['MODEL'])
 
@@ -164,7 +164,7 @@ def main():
     cpu_render_model.eval()
 
     # specify quantization configuration
-    cpu_base_model.qconfig = torch.quantization.get_default_qconfig('fbgemm')
+    cpu_base_model.set_qconfig('fbgemm')
     torch.quantization.prepare(cpu_base_model, inplace=True)
 
     # calibrate with the training set

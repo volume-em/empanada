@@ -124,7 +124,10 @@ class QuantizablePanopticDeepLab(nn.Module):
         else:
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
-        
+    
+    def set_qconfig(self, observer='fbgemm'):
+        self.qconfig = torch.quantization.get_default_qconfig(observer)
+
     def _encode_decode(self, x):
         pyramid_features: List[torch.Tensor] = self.encoder(x)
         

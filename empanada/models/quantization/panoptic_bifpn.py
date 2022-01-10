@@ -49,6 +49,10 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
     
+    def set_qconfig(self, observer='fbgemm'):
+        # only the encoder gets quantized
+        self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
+    
     def _forward_encoder(self, x: torch.Tensor):
         x = self.quant(x)
         features: List[torch.Tensor] = self.encoder(x)
