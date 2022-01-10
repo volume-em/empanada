@@ -8,9 +8,7 @@ from empanada import data
 from empanada.data.utils.transforms import CopyPaste
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-from empanada import models
 from empanada.models import quantization as quant_models
-from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
 
 from empanada.config_loaders import load_train_config
@@ -21,7 +19,8 @@ augmentations = sorted(name for name in A.__dict__
 )
 
 datasets = sorted(name for name in data.__dict__
-    if callable(models.__dict__[name])
+    if callable(data.__dict__[name]) and not name.startswith('__')
+    and name[0].isupper()
 )
 
 def parse_args():
@@ -57,7 +56,7 @@ def create_dataloader(config, norms):
         *dataset_augs,
         A.Normalize(**norms),
         ToTensorV2()
-    ])
+    ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
 
     # create training dataset and loader
     dataset_class_name = config['TRAIN']['dataset_class']
@@ -65,7 +64,7 @@ def create_dataloader(config, norms):
     train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
     if config['TRAIN']['additional_train_dirs'] is not None:
         for train_dir in config['TRAIN']['additional_train_dirs']:
-            add_dataset = MitoData(train_dir, tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+            add_dataset = data_cls(train_dir, tfs, weight_gamma=config['TRAIN']['weight_gamma'])
             train_dataset = train_dataset + add_dataset
 
     if config['TRAIN']['weight_gamma'] is not None:
@@ -92,14 +91,13 @@ def main():
 
     save_path = args.save_path
     num_calibration_batches = args.nc
-    quantize = args.quantize
 
     # create model directory if None
     if not os.path.isfile(model_fpath):
         raise Exception(f'Model {model_fpath} does not exist!')
 
-    if not os.path.isdir(os.path.dirname(save_path)):
-        os.makedirs(os.path.dirname(save_path))
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
 
     # validate parameters
     model_arch = config['MODEL']['arch']
@@ -129,8 +127,9 @@ def main():
             base_state_dict[key] = state_dict[key]
 
     # create the GPU and CPU versions of the models
-    gpu_base_model = models.__dict__[base_arch](**config['MODEL'])
-    gpu_render_model = PointRendSemSegHead(**config['MODEL'])
+    pr_nin = config['MODEL']['fpn_dim'] if 'fpn_dim' in config else config['MODEL']['decoder_channels']
+    gpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=False)
+    gpu_render_model = QuantizablePointRendSemSegHead(nin=pr_nin ,**config['MODEL'])
 
     # load the state dicts
     gpu_base_model.load_state_dict(base_state_dict, strict=True)
@@ -144,14 +143,14 @@ def main():
 
     gpu_render_model.eval()
     gpu_render_model.cuda()
-    gpu_render_model = torch.jit_script(gpu_render_model)
+    gpu_render_model = torch.jit.script(gpu_render_model)
 
     torch.jit.save(gpu_base_model, os.path.join(save_path, f'{model_arch}_{config_name}_base_gpu.pth'))
     torch.jit.save(gpu_render_model, os.path.join(save_path, f'{model_arch}_{config_name}_render_gpu.pth'))
     print('Exported GPU models successfully!')
 
     cpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=True)
-    cpu_render_model = QuantizablePointRendSemSegHead(**config['MODEL'])
+    cpu_render_model = QuantizablePointRendSemSegHead(nin=pr_nin, **config['MODEL'])
     cpu_base_model.load_state_dict(base_state_dict, strict=True)
     cpu_render_model.load_state_dict(pr_state_dict, strict=True)
 

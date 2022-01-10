@@ -7,7 +7,7 @@ from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.blocks import *
 from empanada.models import encoders
 from einops import rearrange
-from typing import List
+from typing import List, Tuple
 from copy import deepcopy
 
 backbones = sorted(name for name in encoders.__dict__
@@ -39,7 +39,9 @@ class _BaseModel(nn.Module):
         
         self.encoder = encoders.__dict__[encoder]()
         self.p2_resample = Resample2d(int(self.encoder.cfg.widths[0]), fpn_dim)
-        
+        self.num_classes = num_classes
+        self.fpn_dim = fpn_dim
+
         # pass input channels from stages 2-4 only (1/8->1/32 resolutions)
         # N.B. EfficientDet BiFPN uses compound scaling rules that we ignore
         if 'resnet' in encoder:
@@ -82,12 +84,12 @@ class _BaseModel(nn.Module):
     def _forward_decoders(self, x: List[torch.Tensor], p2_features):
         semantic_pyr = self.semantic_fpn(x)
         semantic_pyr = [p2_features] + semantic_pyr
-        semantic_x = self.semantic_decoder(semantic_pyr)
+        semantic_x = self.semantic_decoder(semantic_pyr[::-1])
 
         if self.instance_fpn is not None:
             instance_pyr = self.instance_fpn(x)
             instance_pyr = [p2_features] + instance_pyr
-            instance_x = self.instance_decoder(instance_pyr)
+            instance_x = self.instance_decoder(instance_pyr[::-1])
         else:
             instance_x = semantic_x
 
@@ -113,9 +115,8 @@ class _BaseModel(nn.Module):
         
         # only passes features from
         # 1/8 -> 1/32 resolutions (i.e. P3-P5)
-        semantic_x: List[torch.Tensor], instance_x: List[torch.Tensor] = \
-        self._forward_decoders(pyramid_features[2:], p2_features)
-        
+        semantic_x,  instance_x  = self._forward_decoders(pyramid_features[2:], p2_features)
+
         output = self._apply_heads(semantic_x, instance_x)
         
         # classify the image annotation confidence
@@ -163,7 +164,7 @@ class PanopticBiFPNPR(PanopticBiFPN):
         # change semantic head from regular PDL head to 
         # PDL head + PointRend
         self.semantic_pr = PointRendSemSegHead(
-            self.decoder_channels, self.num_classes, num_fc,
+            self.fpn_dim, self.num_classes, num_fc,
             train_num_points, oversample_ratio, 
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points

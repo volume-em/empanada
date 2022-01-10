@@ -84,6 +84,7 @@ TRAIN:
 
   # dataset parameters
   batch_size: 64
+  dataset_class: "SingleClassInstanceDataset"
   weight_gamma: 0.7
   workers: 8
 

@@ -173,8 +173,9 @@ class BiFPN(nn.Module):
         p6 = self.downsize(self.p6_resample(pyramid_features[-1]))
         p7 = self.downsize(p6)
         
-        pyramid_features.extend([p6, p7])
-        
+        #pyramid_features.extend([p6, p7])
+        pyramid_features = pyramid_features + [p6, p7]
+
         for bifpn in self.bifpns:
             pyramid_features = bifpn(pyramid_features)
             

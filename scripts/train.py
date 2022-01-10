@@ -49,7 +49,7 @@ augmentations = sorted(name for name in A.__dict__
 )
 
 datasets = sorted(name for name in data.__dict__
-    if callable(models.__dict__[name])
+    if callable(data.__dict__[name])
 )
 
 def parse_args():
@@ -290,7 +290,7 @@ def main_worker(gpu, ngpus_per_node, config):
         *dataset_augs,
         A.Normalize(**norms),
         ToTensorV2()
-    ])
+    ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
     
     # create training dataset and loader
     train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
@@ -322,7 +322,7 @@ def main_worker(gpu, ngpus_per_node, config):
             FactorPad(128), # pad image to be divisible by 128
             A.Normalize(**norms),
             ToTensorV2()
-        ])
+        ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
         eval_dataset = data_cls(config['EVAL']['eval_dir'], eval_tfs)
         # evaluation runs on a single gpu
         eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False, 
