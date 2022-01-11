@@ -22,9 +22,12 @@ from empanada.zarr_utils import *
 from empanada.consensus import merge_objects3d
 from empanada.config_loaders import load_config, load_inference_config
 from empanada.inference import engines
-from empanada.inference.matcher import SequentialMatcher
+from empanada.inference.matcher import SequentialMatcher, RLEMatcher
 from empanada.inference.tracker import InstanceTracker
 from empanada.inference import filters
+from empanada.inference.rle import pan_seg_to_rle_seg
+
+from empanada.evaluation import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs empanada model inference.')
@@ -54,7 +57,7 @@ def parse_args():
     parser.add_argument('--use-cpu', action='store_true', help='Whether to force inference to run on CPU.')
     return parser.parse_args()
 
-def run_forward_matchers(stack, axis, matchers, queue):
+def run_forward_matchers(matchers, queue, rle_stack, matcher_in):
     while True:
         fill_index, pan_seg = queue.get()
         if pan_seg is None:
@@ -63,12 +66,17 @@ def run_forward_matchers(stack, axis, matchers, queue):
             break
         else:
             for matcher in matchers:
-                if matcher.target_seg is None:
-                    pan_seg = matcher.initialize_target(pan_seg)
+                class_id = matcher.class_id
+                if matcher.target_rle is None:
+                    matcher.initialize_target(pan_seg[class_id])
                 else:
-                    pan_seg = matcher(pan_seg)
-
-            zarr_put3d(stack, fill_index, pan_seg, axis)
+                    pan_seg[class_id] = matcher(pan_seg[class_id])
+                    
+            rle_stack.append(pan_seg)
+            
+    
+    matcher_in.send([rle_stack])
+    matcher_in.close()
 
 if __name__ == "__main__":
     args = parse_args()
@@ -158,12 +166,14 @@ if __name__ == "__main__":
 
         # create a separate matcher for each thing class
         matchers = [
-            SequentialMatcher(thing_class, label_divisor, merge_iou_thr=args.iou_thr, merge_ioa_thr=args.ioa_thr)
+            RLEMatcher(thing_class, label_divisor, merge_iou_thr=args.iou_thr, merge_ioa_thr=args.ioa_thr)
             for thing_class in thing_list
         ]
 
         queue = mp.Queue()
-        matcher_proc = mp.Process(target=run_forward_matchers, args=(stack, axis, matchers, queue))
+        rle_stack = []
+        matcher_out, matcher_in = mp.Pipe()
+        matcher_proc = mp.Process(target=run_forward_matchers, args=(matchers, queue, rle_stack, matcher_in))
         matcher_proc.start()
 
         # make axis-specific dataset
@@ -175,55 +185,65 @@ if __name__ == "__main__":
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
             pan_seg = inference_engine(image)
-
+            
             if pan_seg is None:
                 # building the queue
                 queue.put((fill_index, pan_seg))
                 continue
             else:
-                pan_seg = pan_seg.squeeze() # remove padding and unit dimensions
-                queue.put((fill_index, pan_seg.cpu().numpy()))
+                pan_seg = pan_seg.squeeze().cpu().numpy() # remove padding and unit dimensions
+                
+                # convert to a compressed rle segmentation
+                pan_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, force_connected=True)
+                
+                queue.put((fill_index, pan_seg))
                 fill_index += 1
 
         final_segs = inference_engine.empty_queue()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
-                #pan_seg = pan_seg[0]
-                pan_seg = pan_seg.squeeze() # remove padding
-                queue.put((fill_index, pan_seg.cpu().numpy()))
+                pan_seg = pan_seg.squeeze().cpu().numpy() # remove padding
+                
+                # convert to a compressed rle segmentation
+                pan_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, force_connected=True)
+                
+                queue.put((fill_index, pan_seg))
                 fill_index += 1
 
         queue.put((fill_index, 'DONE'))
+        rle_stack = matcher_out.recv()[0]
         matcher_proc.join()
-
+        
         print(f'Propagating labels backward through the stack...')
         # set the matchers to not assign new labels
         # and not split disconnected components
 
         for matcher in matchers:
             matcher.assign_new = False
-            matcher.force_connected = False
+            #matcher.force_connected = False
 
         # TODO: multiprocessing the loading with a Queue
         # skip the bottom slice
         rev_indices = np.arange(0, stack.shape[axis])[::-1]
         for rev_idx in tqdm(rev_indices):
             rev_idx = rev_idx.item()
-            pan_seg = zarr_take3d(stack, rev_idx, axis)
+            pan_seg = rle_stack[rev_idx] #zarr_take3d(stack, rev_idx, axis)
 
             for matcher in matchers:
-                if matcher.target_seg is None:
-                    pan_seg = matcher.initialize_target(pan_seg)
+                class_id = matcher.class_id
+                if matcher.target_rle is None:
+                    matcher.initialize_target(pan_seg[class_id])
                 else:
-                    pan_seg = matcher(pan_seg)
+                    pan_seg[class_id] = matcher(pan_seg[class_id])
 
             # leave the last slice in the stack alone
-            if rev_idx < (stack.shape[axis] - 1):
-                zarr_put3d(stack, rev_idx, pan_seg, axis)
+            #if rev_idx < (stack.shape[axis] - 1):
+            #    zarr_put3d(stack, rev_idx, pan_seg, axis)
 
             # track each instance for each class
             for tracker in trackers[axis_name]:
-                tracker.update(pan_seg, rev_idx)
+                class_id = tracker.class_id
+                tracker.update(pan_seg[class_id], rev_idx)
 
         # finish tracking
         for tracker in trackers[axis_name]:
@@ -265,3 +285,19 @@ if __name__ == "__main__":
         )
         zarr_fill_instances(consensus_vol, consensus_tracker.instances)
         consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
+    
+    # run evaluation
+    semantic_metrics = {'IoU': iou}
+    instance_metrics = {'F1_50': f1_50, 'F1_75': f1_75, 'Precision_50': precision_50, 
+                        'Precision_75': precision_75, 'Recall_50': recall_50, 'Recall_75': recall_75}
+    panoptic_metrics = {'PQ': panoptic_quality}
+    evaluator = Evaluator(semantic_metrics, instance_metrics, panoptic_metrics)
+    
+    for class_name in config['class_names']:
+        gt_json = os.path.join(args.volume_path, f'{class_name}_gt.json')
+        pred_json = os.path.join(args.volume_path, f'{class_name}_pred.json')
+        results = evaluator(gt_json, pred_json)
+        results = {f'{class_name}_{k}': v for k,v in results.items()}
+        
+        for k, v in results.items():
+            print(k, v)
