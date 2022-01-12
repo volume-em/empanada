@@ -20,7 +20,7 @@ from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects3d
-from empanada.config_utils import load_train_config, load_inference_config
+from empanada.config_loaders import load_train_config, load_inference_config
 
 from tqdm import tqdm
 

@@ -49,7 +49,13 @@ class ASPPPooling(nn.Module):
 
 
 class ASPP(nn.Module):
-    def __init__(self, in_channels, out_channels, atrous_rates=(2, 4, 6)):
+    def __init__(
+        self, 
+        in_channels, 
+        out_channels, 
+        atrous_rates=(2, 4, 6),
+        dropout_p=0.5
+    ):
         r"""A atrous spatial pyramid pooling module.
 
         Args:
@@ -57,14 +63,13 @@ class ASPP(nn.Module):
             out_channels (int) - Number of channels produced by the convolution
             atrous_rates (list, tuple) - Convolution dilation rates for each pyramid
             level (there are typically 3 pyramid levels). Default (2, 4, 6).
-
+            dropout_p (float) - Dropout probability for projection module
         Shape:
             - Input: :math:`(N, C_{in}, H_{in}, W_{in})`
             - Output: :math:`(N, C_{out}, H_{in}, W_{in})`
 
         """
         super(ASPP, self).__init__()
-        # out_channels = 256
         modules = []
         modules.append(nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
@@ -83,7 +88,8 @@ class ASPP(nn.Module):
             nn.Conv2d(5 * out_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
-            nn.Dropout(0.5))
+            nn.Dropout(dropout_p)
+        )
 
     def set_image_pooling(self, pool_size):
         self.convs[-1].set_image_pooling(pool_size)

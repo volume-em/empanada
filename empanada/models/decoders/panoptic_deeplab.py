@@ -29,13 +29,15 @@ class PanopticDeepLabDecoder(nn.Module):
         low_level_channels, 
         low_level_channels_project,
         atrous_rates, 
-        aspp_channels=None
+        aspp_channels=None,
+        aspp_dropout=0.5
     ):
         super(PanopticDeepLabDecoder, self).__init__()
         
         if aspp_channels is None:
             aspp_channels = decoder_channels
-        self.aspp = ASPP(in_channels, out_channels=aspp_channels, atrous_rates=atrous_rates)
+        self.aspp = ASPP(in_channels, out_channels=aspp_channels, 
+                         atrous_rates=atrous_rates, dropout_p=aspp_dropout)
         
         assert len(low_level_stages) == len(low_level_channels)
         self.low_level_stages = low_level_stages

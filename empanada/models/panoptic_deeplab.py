@@ -27,6 +27,7 @@ class PanopticDeepLab(nn.Module):
         low_level_channels_project=[128, 64, 32],
         atrous_rates=[2, 4, 6],
         aspp_channels=None,
+        aspp_dropout=0.1,
         ins_decoder=False,
         ins_ratio=0.5,
         confidence_head=False,
@@ -51,7 +52,8 @@ class PanopticDeepLab(nn.Module):
             [int(self.encoder.cfg.widths[i - 1]) for i in low_level_stages], 
             low_level_channels_project,
             atrous_rates, 
-            aspp_channels
+            aspp_channels,
+            aspp_dropout
         )
         
         if ins_decoder:
@@ -62,7 +64,8 @@ class PanopticDeepLab(nn.Module):
                 [int(self.encoder.cfg.widths[i - 1]) for i in low_level_stages], 
                 [int(s * ins_ratio) for s in low_level_channels_project],
                 atrous_rates, 
-                aspp_channels
+                aspp_channels,
+                aspp_dropout
             )
         else:
             self.instance_decoder = None

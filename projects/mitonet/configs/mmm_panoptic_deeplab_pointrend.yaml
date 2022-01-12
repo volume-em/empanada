@@ -11,14 +11,17 @@ MODEL:
   num_classes: 1
   stage4_stride: 16
   decoder_channels: 256
-  low_level_stages: [ 3, 2, 1 ]
-  low_level_channels_project: [ 128, 64, 32 ]
+  low_level_stages: [ 1 ]
+  low_level_channels_project: [ 32 ]
   atrous_rates: [ 2, 4, 6 ]
   aspp_channels: null
+  aspp_dropout: 0.5
   ins_decoder: True
+  ins_ratio: 0.5
   confidence_head: False
   confidence_bins: 5
-
+  
+  
   # point_rend arguments
   num_fc: 3
   train_num_points: 1024
@@ -40,6 +43,7 @@ TRAIN:
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
 
   model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_DeepLab_PointRend"
   save_freq: 1
@@ -56,8 +60,8 @@ TRAIN:
   lr_schedule: "OneCycleLR"
   schedule_params:
     max_lr: 0.003
-    epochs: 200
-    steps_per_epoch: 305
+    epochs: 30
+    steps_per_epoch: 333
     pct_start: 0.3
 
   # setup the optimizer
