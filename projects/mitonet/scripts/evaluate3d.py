@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
             # leave the last slice in the stack alone
             #if rev_idx < (stack.shape[axis] - 1):
-            zarr_put3d(stack, rev_idx, rle_seg_to_pan_seg(pan_seg, (h, w)), axis)
+            #zarr_put3d(stack, rev_idx, rle_seg_to_pan_seg(pan_seg, (h, w)), axis)
         
             # track each instance for each class
             for tracker in trackers[axis_name]:

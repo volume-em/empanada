@@ -177,6 +177,8 @@ class InstanceTracker:
         self.finished = False
         self.reset()
         
+        self.axis_nums = {'xy': 0, 'xz': 1, 'yz': 2}
+        
     def reset(self):
         self.instances = {}
         
@@ -189,32 +191,34 @@ class InstanceTracker:
         # extract bounding box and object pixels coords
         for label,attrs in instance_rles.items():
             box = to_box3d(index2d, attrs['box'], self.axis)
-            
-            coords2d_flat = rle_decode(attrs['starts'], attrs['runs'])
-            if self.axis == 'xy':
-                ignore_idx = 0
-            elif self.axis == 'xz':
-                ignore_idx = 1
-            else:
-                ignore_idx = 2
+            ignore_idx = self.axis_nums[self.axis]
                 
             shape2d = tuple([s for i,s in enumerate(self.shape3d) if i != ignore_idx])
-            coords2d = np.unravel_index(coords2d_flat, shape2d)
-            coords = to_coords3d(index2d, coords2d, self.axis)
-            
-            # convert the coords to raveled indices
-            coords_flat = np.ravel_multi_index(coords, self.shape3d)
+
+            # convert to 3d starts and runs
+            if self.axis == 'xy':
+                starts = attrs['starts'] + index2d * math.prod(shape2d)
+                runs = attrs['runs']
+            elif self.axis == 'xz':
+                coords2d = np.unravel_index(attrs['starts'], shape2d)
+                coords3d = to_coords3d(index2d, coords2d, 'xz')
+                starts = np.ravel_multi_index(coords3d, self.shape3d)
+                runs = attrs['runs']
+            else:
+                coords2d_flat = rle_decode(attrs['starts'], attrs['runs'])
+                coords2d = np.unravel_index(coords2d_flat, shape2d)
+                coords3d = to_coords3d(index2d, coords2d, 'yz')
+                starts = np.ravel_multi_index(coords3d, self.shape3d)
+                runs = np.ones_like(starts)
             
             # update instances dict
             if label not in self.instances:
-                starts, runs = rle_encode(coords_flat)
                 self.instances[label] = {
                     'box': box, 'starts': [starts], 'runs': [runs]
                 }
             else:
                 # merge boxes and coords
                 instance_dict = self.instances[label]
-                starts, runs = rle_encode(coords_flat)
                 self.instances[label]['box'] = merge_boxes3d(box, instance_dict['box'])
                 self.instances[label]['starts'].append(starts)
                 self.instances[label]['runs'].append(runs)

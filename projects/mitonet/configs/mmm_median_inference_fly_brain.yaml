@@ -1,6 +1,6 @@
 BASE: "./mmm_median_inference.yaml"
 
-axes: [ 'xy' ]
+axes: [ 'xy', 'xz', 'yz' ]
 
 # parameters for the inference engine
 engine_params:
