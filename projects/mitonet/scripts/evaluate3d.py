@@ -15,13 +15,14 @@ from torch.utils.data import DataLoader
 from empanada import models
 from empanada.inference import engines
 from empanada.inference import filters
-from empanada.inference.matcher import SequentialMatcher
+from empanada.inference.matcher import RLEMatcher, SequentialMatcher
 from empanada.inference.tracker import InstanceTracker
 from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects3d
-from empanada.config_loaders import load_config_with_base, load_config_with_base
+from empanada.config_loaders import load_train_config, load_inference_config
+from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
 from tqdm import tqdm
 
@@ -54,7 +55,7 @@ def snakemake_args():
     
     return argparse.Namespace(**params)
 
-def run_forward_matchers(stack, axis, matchers, queue):
+def run_forward_matchers(matchers, queue, rle_stack, matcher_in):
     while True:
         fill_index, pan_seg = queue.get()
         if pan_seg is None:
@@ -63,12 +64,16 @@ def run_forward_matchers(stack, axis, matchers, queue):
             break
         else:
             for matcher in matchers:
-                if matcher.target_seg is None:
-                    pan_seg = matcher.initialize_target(pan_seg)
+                class_id = matcher.class_id
+                if matcher.target_rle is None:
+                    matcher.initialize_target(pan_seg[class_id])
                 else:
-                    pan_seg = matcher(pan_seg)
+                    pan_seg[class_id] = matcher(pan_seg[class_id])
                     
-            zarr_put3d(stack, fill_index, pan_seg, axis)
+            rle_stack.append(pan_seg)
+            
+    matcher_in.send([rle_stack])
+    matcher_in.close()
 
 if __name__ == "__main__":
     if 'snakemake' in globals():
@@ -87,6 +92,8 @@ if __name__ == "__main__":
     
     volume_path = args.volume_path
     weight_path = os.path.join(config['TRAIN']['model_dir'], f'{config_name}_checkpoint.pth.tar')
+    
+    config_name += '_rle_testing'
         
     # validate parameters
     model_arch = config['MODEL']['arch']
@@ -143,7 +150,7 @@ if __name__ == "__main__":
             InstanceTracker(class_id, label_divisor, volume.shape, axis_name) 
             for class_id in class_labels
         ]
-    
+        
     for axis_name, axis in axes.items():
         print(f'Predicting {axis_name} stack')
         
@@ -160,76 +167,96 @@ if __name__ == "__main__":
         
         # create a separate matcher for each thing class
         matchers = [
-            SequentialMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
+            RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
+            #RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
             for thing_class in thing_list
         ]
         
         queue = mp.Queue()
-        matcher_proc = mp.Process(target=run_forward_matchers, args=(stack, axis, matchers, queue))
+        rle_stack = []
+        matcher_out, matcher_in = mp.Pipe()
+        matcher_proc = mp.Process(target=run_forward_matchers, args=(matchers, queue, rle_stack, matcher_in))
         matcher_proc.start()
-        
+
         # make axis-specific dataset
         dataset = ZarrData(volume, axis, eval_tfs)
-        dataloader = DataLoader(dataset, batch_size=1, shuffle=False, 
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
                                 pin_memory=True, drop_last=False, num_workers=8)
-        
+
         fill_index = 0
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
-            h, w = image.size()[2:]
-            image = factor_pad_tensor(image, 128)
+            h, w = image.size()[-2:]
             
+            pan_seg = factor_pad_tensor(image, 128)
             pan_seg = inference_engine(image)
             
-            #pan_seg = pan_seg[0]
             if pan_seg is None:
                 # building the queue
                 queue.put((fill_index, pan_seg))
                 continue
             else:
-                pan_seg = pan_seg.squeeze()[:h, :w] # remove padding and unit dimensions
-                queue.put((fill_index, pan_seg.cpu().numpy()))
-                fill_index += 1
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding and unit dimensions
                 
+                # convert to a compressed rle segmentation
+                pan_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
+                
+                queue.put((fill_index, pan_seg))
+                fill_index += 1
+
         final_segs = inference_engine.end()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
-                #pan_seg = pan_seg[0]
-                pan_seg = pan_seg.squeeze()[:h, :w] # remove padding
-                queue.put((fill_index, pan_seg.cpu().numpy()))
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding
+                
+                # convert to a compressed rle segmentation
+                pan_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
+                
+                for matcher in matchers:
+                    class_id = matcher.class_id
+                    if matcher.target_rle is None:
+                        matcher.initialize_target(pan_seg[class_id])
+                    else:
+                        pan_seg[class_id] = matcher(pan_seg[class_id])
+
+                queue.put((fill_index, pan_seg))
                 fill_index += 1
 
         queue.put((fill_index, 'DONE'))
+        rle_stack = matcher_out.recv()[0]
         matcher_proc.join()
-                
+        
         print(f'Propagating labels backward through the stack...')
+        
         # set the matchers to not assign new labels
         # and not split disconnected components
-        
         for matcher in matchers:
+            matcher.target_rle = None
             matcher.assign_new = False
-            matcher.force_connected = False
             
-        # TODO: multiprocessing the tracker with a Queue
+        # TODO: multiprocessing the loading with a Queue
+        # skip the bottom slice
         rev_indices = np.arange(0, stack.shape[axis])[::-1]
         for rev_idx in tqdm(rev_indices):
             rev_idx = rev_idx.item()
-            pan_seg = zarr_take3d(stack, rev_idx, axis)    
+            pan_seg = rle_stack[rev_idx]
             
             for matcher in matchers:
-                if matcher.target_seg is None:
-                    pan_seg = matcher.initialize_target(pan_seg)
+                class_id = matcher.class_id
+                if matcher.target_rle is None:
+                    matcher.initialize_target(pan_seg[class_id])
                 else:
-                    pan_seg = matcher(pan_seg)
-            
+                    pan_seg[class_id] = matcher(pan_seg[class_id])
+
             # leave the last slice in the stack alone
-            if rev_idx < (stack.shape[axis] - 1):
-                zarr_put3d(stack, rev_idx, pan_seg, axis)
-            
+            #if rev_idx < (stack.shape[axis] - 1):
+            #zarr_put3d(stack, rev_idx, rle_seg_to_pan_seg(pan_seg, (h, w)), axis)
+        
             # track each instance for each class
             for tracker in trackers[axis_name]:
-                tracker.update(pan_seg, rev_idx)
-            
+                class_id = tracker.class_id
+                tracker.update(pan_seg[class_id], rev_idx)
+
         # finish tracking
         for tracker in trackers[axis_name]:
             tracker.finish()
@@ -239,7 +266,7 @@ if __name__ == "__main__":
             for filt,kwargs in zip(filter_names, filter_kwargs):
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
-                    
+    
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
         # get the relevant trackers for the class_label
@@ -298,4 +325,3 @@ if __name__ == "__main__":
                         mlflow.log_metric(f'{volname}_{k}', v, step=0)
         except:
             print('Results not stored in MLFlow, script was run in the wrong directory.')
-            
