@@ -23,15 +23,26 @@ def unpack_attrs(instance_rle_seg):
 
     return np.array(labels), np.array(boxes), starts, runs
 
+def merge_attrs(rle_attr1, rle_attr2):
+    # extract labels, boxes, and rle for a given class id
+    rle_attr_out = {}
+    rle_attr_out['box'] = merge_boxes2d(rle_attr1['box'], rle_attr2['box'])
+    
+    starts, runs = merge_rles(
+        rle_attr1['starts'], rle_attr1['runs'],
+        rle_attr2['starts'], rle_attr2['runs']
+    )
+    rle_attr_out['starts'] = starts
+    rle_attr_out['runs'] = runs
+
+    return rle_attr_out
+
 def fast_matcher(
     target_instance_seg, 
     match_instance_seg,
     iou_thr=0.5,
     return_ioa=False
 ):
-    """
-    Does this support multiclass instance segmentation? No. Should perform this per class.
-    """
     # extract bounding boxes and labels for 
     # all objects in each instance segmentation
     rps = measure.regionprops(target_instance_seg)
@@ -220,7 +231,10 @@ class RLEMatcher:
                     new_label = ml
                     
             # add instance with new label
-            matched_rles[new_label] = mattrs
+            if new_label not in matched_rles:
+                matched_rles[new_label] = mattrs
+            else:
+                matched_rles[new_label] = merge_attrs(matched_rles[new_label], mattrs)
             
         # make matched instance rles the next target
         if update_target:
@@ -320,6 +334,7 @@ class SequentialMatcher:
                 # because it was also used by the fast_matcher function)
                 assert rp.label == match_labels[i]
                 ioa_max = ioa_matrix[:, i].max() if len(ioa_matrix) > 0 else 0
+                
                 if ioa_max >= self.merge_ioa_thr:
                     new_label = target_labels[ioa_matrix[:, i].argmax()]
                 elif self.assign_new:
@@ -329,6 +344,7 @@ class SequentialMatcher:
                     self.next_label += 1
                 else:
                     # keep the existing label
+                    #print('kept label', rp.label)
                     new_label = rp.label
                     
             # update all pixels instance and panoptic

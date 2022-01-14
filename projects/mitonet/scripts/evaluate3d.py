@@ -22,7 +22,7 @@ from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects3d
 from empanada.config_loaders import load_train_config, load_inference_config
-from empanada.inference.rle import pan_seg_to_rle_seg
+from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
 from tqdm import tqdm
 
@@ -72,7 +72,6 @@ def run_forward_matchers(matchers, queue, rle_stack, matcher_in):
                     
             rle_stack.append(pan_seg)
             
-    
     matcher_in.send([rle_stack])
     matcher_in.close()
 
@@ -93,6 +92,8 @@ if __name__ == "__main__":
     
     volume_path = args.volume_path
     weight_path = os.path.join(config['TRAIN']['model_dir'], f'{config_name}_checkpoint.pth.tar')
+    
+    config_name += '_rle_testing'
         
     # validate parameters
     model_arch = config['MODEL']['arch']
@@ -149,7 +150,7 @@ if __name__ == "__main__":
             InstanceTracker(class_id, label_divisor, volume.shape, axis_name) 
             for class_id in class_labels
         ]
-    
+        
     for axis_name, axis in axes.items():
         print(f'Predicting {axis_name} stack')
         
@@ -167,6 +168,7 @@ if __name__ == "__main__":
         # create a separate matcher for each thing class
         matchers = [
             RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
+            #RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
             for thing_class in thing_list
         ]
         
@@ -194,7 +196,7 @@ if __name__ == "__main__":
                 queue.put((fill_index, pan_seg))
                 continue
             else:
-                pan_seg = pan_seg[:h, :w].squeeze().cpu().numpy() # remove padding and unit dimensions
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding and unit dimensions
                 
                 # convert to a compressed rle segmentation
                 pan_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
@@ -205,11 +207,18 @@ if __name__ == "__main__":
         final_segs = inference_engine.end()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
-                pan_seg = pan_seg[:h, :w].squeeze().cpu().numpy() # remove padding
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding
                 
                 # convert to a compressed rle segmentation
                 pan_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
                 
+                for matcher in matchers:
+                    class_id = matcher.class_id
+                    if matcher.target_rle is None:
+                        matcher.initialize_target(pan_seg[class_id])
+                    else:
+                        pan_seg[class_id] = matcher(pan_seg[class_id])
+
                 queue.put((fill_index, pan_seg))
                 fill_index += 1
 
@@ -218,20 +227,20 @@ if __name__ == "__main__":
         matcher_proc.join()
         
         print(f'Propagating labels backward through the stack...')
+        
         # set the matchers to not assign new labels
         # and not split disconnected components
-
         for matcher in matchers:
+            matcher.target_rle = None
             matcher.assign_new = False
-            #matcher.force_connected = False
             
         # TODO: multiprocessing the loading with a Queue
         # skip the bottom slice
         rev_indices = np.arange(0, stack.shape[axis])[::-1]
         for rev_idx in tqdm(rev_indices):
             rev_idx = rev_idx.item()
-            pan_seg = rle_stack[rev_idx] #zarr_take3d(stack, rev_idx, axis)
-
+            pan_seg = rle_stack[rev_idx]
+            
             for matcher in matchers:
                 class_id = matcher.class_id
                 if matcher.target_rle is None:
@@ -241,8 +250,8 @@ if __name__ == "__main__":
 
             # leave the last slice in the stack alone
             #if rev_idx < (stack.shape[axis] - 1):
-            #    zarr_put3d(stack, rev_idx, pan_seg, axis)
-
+            zarr_put3d(stack, rev_idx, rle_seg_to_pan_seg(pan_seg, (h, w)), axis)
+        
             # track each instance for each class
             for tracker in trackers[axis_name]:
                 class_id = tracker.class_id
@@ -257,7 +266,7 @@ if __name__ == "__main__":
             for filt,kwargs in zip(filter_names, filter_kwargs):
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
-                    
+    
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
         # get the relevant trackers for the class_label
@@ -288,7 +297,7 @@ if __name__ == "__main__":
             f'{config_name}_{class_name}_pred', shape=shape, dtype=np.uint64,
             overwrite=True, chunks=(1, None, None)
         )
-        #zarr_fill_instances(consensus_vol, consensus_tracker.instances)
+        zarr_fill_instances(consensus_vol, consensus_tracker.instances)
         consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
     
     # run evaluation
@@ -316,4 +325,3 @@ if __name__ == "__main__":
                         mlflow.log_metric(f'{volname}_{k}', v, step=0)
         except:
             print('Results not stored in MLFlow, script was run in the wrong directory.')
-            

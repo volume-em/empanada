@@ -449,3 +449,42 @@ def rle_voting(ranges, vote_thr=2):
         )
             
     return voted_ranges
+    
+@numba.jit(nopython=True)
+def join_ranges(ranges):
+    joined = []
+    running_range = None
+    for range1,range2 in zip(ranges[:-1], ranges[1:]):
+        if running_range is None:
+            running_range = range1
+        
+        if running_range[1] >= range2[0]:
+            running_range[1] = max(running_range[1], range2[1])
+        else:
+            joined.append(running_range)
+            running_range = None
+            
+    if running_range is not None:
+        joined.append(running_range)
+    else:
+        joined.append(range2)
+        
+    return joined
+
+def merge_rles(starts_a, runs_a, starts_b, runs_b):
+    # convert from runs to ranges
+    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
+    #print(ranges_a, ranges_b)
+    
+    # merge range
+    merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
+    sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
+    merged_ranges = merged_ranges[sort_indices]
+    #print(merged_ranges)
+    
+    joined = np.array(join_ranges(merged_ranges))
+    #print(joined)
+    
+    # convert from ranges to runs
+    return joined[:, 0], joined[:, 1] - joined[:, 0]
