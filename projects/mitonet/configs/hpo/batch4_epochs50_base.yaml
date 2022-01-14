@@ -32,10 +32,7 @@ TRAIN:
   # set the lr schedule
   lr_schedule: "OneCycleLR"
   schedule_params:
-    max_lr: 0.003
-    epochs: 30
-    steps_per_epoch: 325
-    pct_start: 0.3
+    max_lr: 0.0000003
   
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.5, 1 ]}

@@ -3,6 +3,7 @@ import argparse
 import zarr
 import mlflow
 import numpy as np
+import torch
 import torch.nn as nn
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -20,7 +21,7 @@ from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects3d
-from empanada.config_loaders import load_train_config, load_inference_config
+from empanada.config_loaders import load_config_with_base, load_config_with_base
 
 from tqdm import tqdm
 
@@ -78,8 +79,8 @@ if __name__ == "__main__":
     config_name = args.model_config.split('/')[-1].split('.yaml')[0]
     
     # read the config files
-    config = load_train_config(args.model_config)
-    infer_config = load_inference_config(args.infer_config)
+    config = load_config_with_base(args.model_config)
+    infer_config = load_config_with_base(args.infer_config)
         
     # merge the config files
     config['INFERENCE'] = infer_config

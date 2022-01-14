@@ -12,7 +12,7 @@ def rle_matcher(
     return_iou_matrix=True
 ):
     # screen matches by bounding box iou
-    box_matches = np.array(box_iou3d(gt_boxes, pred_boxes).nonzero()).T
+    box_matches = np.array(box_iou(gt_boxes, pred_boxes).nonzero()).T
     
     # compute mask IoUs of all possible matches
     iou_matrix = np.zeros((len(gt_boxes), len(pred_boxes)), dtype='float')

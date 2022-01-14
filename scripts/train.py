@@ -25,7 +25,7 @@ from empanada.inference.engines import InferenceEngine
 from empanada import data
 from empanada import metrics
 from empanada import models
-from empanada.config_loaders import load_train_config
+from empanada.config_loaders import load_config_with_base
 from empanada.data.utils.sampler import DistributedWeightedSampler
 from empanada.data.utils.transforms import CopyPaste, FactorPad
 
@@ -71,7 +71,7 @@ def main():
         args = parse_args()
 
     # read the config file
-    config = load_train_config(args.config)
+    config = load_config_with_base(args.config)
 
     config['config_file'] = args.config
     config['config_name'] = os.path.basename(args.config).split('.yaml')[0]

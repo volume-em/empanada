@@ -20,7 +20,7 @@ from tqdm import tqdm
 from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.consensus import merge_objects3d
-from empanada.config_loaders import load_config, load_inference_config
+from empanada.config_loaders import load_config, load_config_with_base
 from empanada.inference import engines
 from empanada.inference.matcher import SequentialMatcher
 from empanada.inference.tracker import InstanceTracker

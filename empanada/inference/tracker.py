@@ -93,7 +93,7 @@ class InstanceTracker:
                 # merge boxes and coords
                 instance_dict = self.instances[rp.label]
                 starts, runs = rle_encode(coords_flat)
-                self.instances[rp.label]['box'] = merge_boxes3d(box, instance_dict['box'])
+                self.instances[rp.label]['box'] = merge_boxes(box, instance_dict['box'])
                 self.instances[rp.label]['starts'].append(starts)
                 self.instances[rp.label]['runs'].append(runs)
                 
