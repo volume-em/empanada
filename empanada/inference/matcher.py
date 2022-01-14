@@ -69,7 +69,7 @@ def fast_matcher(
     # only compute mask iou for instances 
     # with overlapping bounding boxes
     # (bounding box screening is only for speed)
-    box_matches = np.array(box_iou2d(boxes1, boxes2).nonzero()).T
+    box_matches = np.array(box_iou(boxes1, boxes2).nonzero()).T
     
     for r1, r2 in box_matches:
         l1 = labels1[r1]
@@ -78,9 +78,9 @@ def fast_matcher(
         l2 = labels2[r2]
         box2 = boxes2[r2]
 
-        box = merge_boxes2d(box1, box2)
-        m1 = crop_and_binarize2d(target_instance_seg, box, l1)
-        m2 = crop_and_binarize2d(match_instance_seg, box, l2)
+        box = merge_boxes(box1, box2)
+        m1 = crop_and_binarize(target_instance_seg, box, l1)
+        m2 = crop_and_binarize(match_instance_seg, box, l2)
 
         iou = mask_iou(m1, m2)
         iou_matrix[r1, r2] = iou

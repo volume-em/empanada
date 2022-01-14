@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from empanada.models import quantization as quant_models
 from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
 
-from empanada.config_loaders import load_train_config
+from empanada.config_loaders import load_config_with_base
 
 augmentations = sorted(name for name in A.__dict__
     if callable(A.__dict__[name]) and not name.startswith('__')
@@ -83,7 +83,7 @@ def main():
     args = parse_args()
 
     # read the config file
-    config = load_train_config(args.config)
+    config = load_config_with_base(args.config)
 
     # get model path from train.py saving convention
     config_name = os.path.basename(args.config).split('.yaml')[0]

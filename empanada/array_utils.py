@@ -1,239 +1,149 @@
+import math
 import numpy as np
 import numba
 
 def box_area(boxes):
-    """Computes area of bounding boxes (N, 4) second dim format (y1, x1, y2, x2)"""
-    height = boxes[:, 2] - boxes[:, 0]
-    width = boxes[:, 3] - boxes[:, 1]
-    return height * width
-
-def box_volume(boxes):
-    """Computes area of bounding boxes (N, 6) second dim format (z1, y1, x1, z2, y2, x2)"""
-    depth = boxes[:, 3] - boxes[:, 0]
-    height = boxes[:, 4] - boxes[:, 1]
-    width = boxes[:, 5] - boxes[:, 2]
-    return depth * height * width
-
-def box_intersection2d(boxes1, boxes2):
-    """Computes the pairwise intersection areas between two sets of boxes"""
-    [y_min1, x_min1, y_max1, x_max1] = np.split(boxes1, 4, axis=1)
-    [y_min2, x_min2, y_max2, x_max2] = np.split(boxes2, 4, axis=1)
-
-    all_pairs_min_ymax = np.minimum(y_max1, np.transpose(y_max2))
-    all_pairs_max_ymin = np.maximum(y_min1, np.transpose(y_min2))
-    intersect_heights = np.maximum(
-        np.zeros(all_pairs_max_ymin.shape), all_pairs_min_ymax - all_pairs_max_ymin
-    )
-    
-    all_pairs_min_xmax = np.minimum(x_max1, np.transpose(x_max2))
-    all_pairs_max_xmin = np.maximum(x_min1, np.transpose(x_min2))
-    intersect_widths = np.maximum(
-        np.zeros(all_pairs_max_xmin.shape), all_pairs_min_xmax - all_pairs_max_xmin
-    )
-    
-    return intersect_heights * intersect_widths
-
-def box_intersection3d(boxes1, boxes2):
-    """Computes the pairwise intersection areas between two sets of boxes"""
-    [z_min1, y_min1, x_min1, z_max1, y_max1, x_max1] = np.split(boxes1, 6, axis=1)
-    [z_min2, y_min2, x_min2, z_max2, y_max2, x_max2] = np.split(boxes2, 6, axis=1)
-    
-    # find z coordinates of overlapping area
-    all_pairs_min_zmax = np.minimum(z_max1, np.transpose(z_max2))
-    all_pairs_max_zmin = np.maximum(z_min1, np.transpose(z_min2))
-    intersect_depths = np.maximum(
-        np.zeros(all_pairs_max_zmin.shape), 
-        all_pairs_min_zmax - all_pairs_max_zmin
-    )
-
-    # find top and bottom coordinates of overlapping area
-    all_pairs_min_ymax = np.minimum(y_max1, np.transpose(y_max2))
-    all_pairs_max_ymin = np.maximum(y_min1, np.transpose(y_min2))
-    intersect_heights = np.maximum(
-        np.zeros(all_pairs_max_ymin.shape), 
-        all_pairs_min_ymax - all_pairs_max_ymin
-    )
-    
-    # find left and right coordinates of the overlapping area
-    all_pairs_min_xmax = np.minimum(x_max1, np.transpose(x_max2))
-    all_pairs_max_xmin = np.maximum(x_min1, np.transpose(x_min2))
-    intersect_widths = np.maximum(
-        np.zeros(all_pairs_max_xmin.shape), 
-        all_pairs_min_xmax - all_pairs_max_xmin
-    )
-    
-    return intersect_depths * intersect_heights * intersect_widths
-
-def pairwise_box_intersection2d(boxes):
     """
-    Calculates the pairwise overlaps with a set of
-    bounding boxes.
-    
+    Computes the area/volume of a set of boxes.
+
     Arguments:
     ----------
-    boxes: Array of shape (n, 4). Where coordinates
-    are (y1, x1, y2, x2).
-    
+    boxes: Array of size (n, 4) or (n, 6) where bounding box
+    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
     Returns:
     --------
-    box_overlaps. Array of shape (n, n).
-    
-    """
-    # separate boxes into coordinates arrays
-    [y_min, x_min, y_max, x_max] = np.split(boxes, 4, axis=1)
-    
-    # find top and bottom coordinates of overlapping area
-    all_pairs_min_ymax = np.minimum(y_max, np.transpose(y_max))
-    all_pairs_max_ymin = np.maximum(y_min, np.transpose(y_min))
-    intersect_heights = np.maximum(
-        np.zeros(all_pairs_max_ymin.shape), 
-        all_pairs_min_ymax - all_pairs_max_ymin
-    )
-    
-    # find left and right coordinates of the overlapping area
-    all_pairs_min_xmax = np.minimum(x_max, np.transpose(x_max))
-    all_pairs_max_xmin = np.maximum(x_min, np.transpose(x_min))
-    intersect_widths = np.maximum(
-        np.zeros(all_pairs_max_xmin.shape), 
-        all_pairs_min_xmax - all_pairs_max_xmin
-    )
-    
-    return intersect_heights * intersect_widths
+    areas: Array of (n,) of each box area/volume.
 
-def pairwise_box_intersection3d(boxes):
     """
-    Calculates the pairwise overlaps with a set of
-    bounding boxes.
+
+    ndim = boxes.shape[1] // 2
     
+    dims = []
+    for i in range(ndim):
+        dims.append(boxes[:, i+ndim] - boxes[:, i])
+
+    return math.prod(dims)
+
+
+def box_intersection(boxes1, boxes2=None):
+    """
+    Computes the pairwise intersection area/volume between two arrays of
+    bounding boxes.
+
     Arguments:
     ----------
-    boxes: Array of shape (n, 6). Where coordinates
-    are (z1, y1, x1, z2, y2, x2).
-    
+    boxes1: Array of size (n, 4) or (n, 6) where bounding box
+    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+    boxes2: Array of size (m, 4) or (m, 6) where bounding box
+    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    If None, then pairwise intersections are calculated between
+    all pairs of boxes in boxes1. Default, None.
+
     Returns:
     --------
-    box_overlaps. Array of shape (n, n).
-    
+    intersections: Array of (n, m) defining pairwise area/volume 
+    intersection between boxes.
+
     """
-    # separate boxes into coordinates arrays
-    [z_min, y_min, x_min, z_max, y_max, x_max] = np.split(boxes, 6, axis=1)
+
+    # do pairwise box iou if no boxes2
+    if boxes2 is None:
+        boxes2 = boxes1
+
+    ndim = boxes1.shape[1] // 2
     
-    # find top and bottom coordinates of overlapping area
-    all_pairs_min_zmax = np.minimum(z_max, np.transpose(z_max))
-    all_pairs_max_zmin = np.maximum(z_min, np.transpose(z_min))
-    intersect_depths = np.maximum(
-        np.zeros(all_pairs_max_zmin.shape), 
-        all_pairs_min_zmax - all_pairs_max_zmin
-    )
-
-    # find top and bottom coordinates of overlapping area
-    all_pairs_min_ymax = np.minimum(y_max, np.transpose(y_max))
-    all_pairs_max_ymin = np.maximum(y_min, np.transpose(y_min))
-    intersect_heights = np.maximum(
-        np.zeros(all_pairs_max_ymin.shape), 
-        all_pairs_min_ymax - all_pairs_max_ymin
-    )
+    box_coords1 = np.split(boxes1, ndim*2, axis=1)
+    box_coords2 = np.split(boxes2, ndim*2, axis=1)
     
-    # find left and right coordinates of the overlapping area
-    all_pairs_min_xmax = np.minimum(x_max, np.transpose(x_max))
-    all_pairs_max_xmin = np.maximum(x_min, np.transpose(x_min))
-    intersect_widths = np.maximum(
-        np.zeros(all_pairs_max_xmin.shape), 
-        all_pairs_min_xmax - all_pairs_max_xmin
-    )
-    
-    return intersect_depths * intersect_heights * intersect_widths
+    intersect_dims = []
+    for i in range(ndim):
+        pairs_max_low = np.maximum(box_coords1[i], np.transpose(box_coords2[i]))
+        pairs_min_high = np.minimum(box_coords1[i+ndim], np.transpose(box_coords2[i+ndim]))
+        
+        intersect_dims.append(
+            np.maximum(np.zeros(pairs_max_low.shape), pairs_min_high - pairs_max_low)
+        )
 
-def merge_boxes2d(box1, box2):
-    """Finds the minimal enclosing box around two given boxes."""
-    ymin1, xmin1, ymax1, xmax1 = box1
-    ymin2, xmin2, ymax2, xmax2 = box2
-    return (
-        min(ymin1, ymin2), min(xmin1, xmin2), 
-        max(ymax1, ymax2), max(xmax1, xmax2)
-    )
+    return np.prod(intersect_dims, axis=0)
 
-def merge_boxes3d(box1, box2):
-    """Finds the minimal enclosing box around two given boxes."""
-    zmin1, ymin1, xmin1, zmax1, ymax1, xmax1 = box1
-    zmin2, ymin2, xmin2, zmax2, ymax2, xmax2 = box2
-    return (
-        min(zmin1, zmin2), 
-        min(ymin1, ymin2), 
-        min(xmin1, xmin2), 
-        max(zmax1, zmax2), 
-        max(ymax1, ymax2), 
-        max(xmax1, xmax2)
-    )
+def merge_boxes(box1, box2):
+    """
+    Merges two bounding boxes into 1 box that encloses both.
 
-def box_iou2d(boxes1, boxes2):
-    """Computes pairwise IoU between two sets of boxes."""
-    intersect = box_intersection2d(boxes1, boxes2)
+    Arguments:
+    ----------
+    box1: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+    box2: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+    Returns:
+    --------
+    merged_box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    Defines the box that completely encloses box1 and box2.
+
+    """
+    n = len(box1)
+    ndim = n // 2
+
+    merged_box = []
+    for i in range(n):
+        if i < ndim:
+            coord = min(box1[i], box2[i])
+        else:
+            coord = max(box1[i], box2[i])
+
+        merged_box.append(coord)
+
+    return tuple(merged_box)
+
+def box_iou(boxes1, boxes2=None):
+    """
+    Calculates the pairwise intersection-over-union between sets of boxes.
+
+    Arguments:
+    ----------
+    boxes1: Array of size (n, 4) or (n, 6) where bounding box
+    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+    boxes2: Array of size (m, 4) or (m, 6) where bounding box
+    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    If None, then pairwise IoUs are calculated between
+    all pairs of boxes in boxes1. Default, None.
+
+    Returns:
+    --------
+    ious: Array of (n, m) defining pairwise IoUs between boxes.
+
+    """
+    # do pairwise box iou if no boxes2
+    if boxes2 is None:
+        boxes2 = boxes1
+
+    intersect = box_intersection(boxes1, boxes2)
     area1 = box_area(boxes1)
     area2 = box_area(boxes2)
+    
+    # union is a matrix of same size as intersect
     union = area1[:, None] + area2[None, :] - intersect
     return intersect / union
 
-def box_iou3d(boxes1, boxes2):
-    """Computes pairwise IoU between two sets of boxes."""
-    intersect = box_intersection3d(boxes1, boxes2)
-    volume1 = box_volume(boxes1)
-    volume2 = box_volume(boxes2)
-    union = volume1[:, None] + volume2[None, :] - intersect
-    return intersect / union
-
-def pairwise_box_iou2d(boxes):
-    """
-    Calculates the pairwise intersection-over-union 
-    within a set of bounding boxes.
-    
-    Arguments:
-    ----------
-    boxes: Array of shape (n, 4). Where coordinates
-    are (y1, x1, y2, x2).
-    
-    Returns:
-    --------
-    box_ious. Array of shape (n, n).
-    
-    """
-    intersect = pairwise_box_intersection2d(boxes) # (n, n)
-    
-    # union is the difference between the sum of 
-    # areas and the intersection
-    area = box_area(boxes)
-    pairwise_area = area[:, None] + area[None, :] # (n, n)
-    union = pairwise_area - intersect
-    
-    return intersect / (union + 1e-5)
-
-def pairwise_box_iou3d(boxes):
-    """
-    Calculates the pairwise intersection-over-union 
-    within a set of bounding boxes.
-    
-    Arguments:
-    ----------
-    boxes: Array of shape (n, 6). Where coordinates
-    are (z1, y1, x1, z2, y2, x2).
-    
-    Returns:
-    --------
-    box_ious. Array of shape (n, n).
-    
-    """
-    intersect = pairwise_box_intersection3d(boxes) # (n, n)
-    
-    # union is the difference between the sum of 
-    # areas and the intersection
-    volume = box_volume(boxes)
-    pairwise_volume = volume[:, None] + volume[None, :] # (n, n)
-    union = pairwise_volume - intersect
-    
-    return intersect / (union + 1e-5)
-
 def rle_encode(indices):
-    """Run length encodes sorted indices."""
+    """
+    Run length encodes an array of 1d indices.
+
+    Arguments:
+    ----------
+    indices: An array of (n,) indices to run length encode.
+
+    Returns:
+    --------
+    starts: Array of (l,) starting indices.
+
+    runs: Array of (l,) run lengths.
+
+    """
     # where indices are not contiguous
     changes = np.where(indices[1:] != indices[:-1] + 1)[0] + 1
     
@@ -250,9 +160,22 @@ def rle_encode(indices):
     assert(len(changes) == len(runs))
     
     return indices[changes], runs
-    #return ' '.join([f'{i} {r}' for i,r in zip(indices[changes], runs)])
     
 def rle_decode(starts, runs):
+    """
+    Decodes run length encoding arrays to an array of indices.
+
+    Arguments:
+    --------
+    starts: Array of (l,) starting indices.
+
+    runs: Array of (l,) run lengths.
+
+    Returns:
+    --------
+    indices: An array of (n,) decoded indices.
+
+    """
     ends = starts + runs
     indices = np.concatenate(
         [np.arange(s, e) for s,e in zip(starts, ends)]
@@ -260,37 +183,102 @@ def rle_decode(starts, runs):
     return indices
 
 def rle_to_string(starts, runs):
+    """
+    Converts run length encoding to a string.
+
+    Arguments:
+    --------
+    starts: Array of (l,) starting indices.
+
+    runs: Array of (l,) run lengths.
+
+    Returns:
+    --------
+    rle_string: String representation of a run length encoding.
+    Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
+
+    """
+    
     return ' '.join([f'{i} {r}' for i,r in zip(starts, runs)])
 
 def string_to_rle(encoding):
+    """
+    Converts run length encoding string to start and run arrays.
+
+    Arguments:
+    --------
+    rle_string: String representation of a run length encoding.
+    Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
+
+    Returns:
+    --------
+    starts: Array of (l,) starting indices.
+
+    runs: Array of (l,) run lengths.
+
+    """
     encoding = np.array([int(i) for i in encoding.split(' ')])
     starts, runs = encoding[::2], encoding[1::2]
     return starts, runs
 
-def indices_iou(set1, set2):
-    """Computes the IoU between two sets of sorted indices."""
-    intersect = len(np.intersect1d(set1, set2, assume_unique=True))
-    union = len(np.union1d(set1, set2))
-    return intersect / union
+def crop_and_binarize(mask, box, label):
+    """
+    Crop a mask from a bounding box and binarize the cropped mask
+    where it's equal to the given label value.
 
-def crop_and_binarize2d(mask, box, label):
-    """Crops and binarizes mask within box with given label"""
-    ymin, xmin, ymax, xmax = box
-    return mask[ymin:ymax, xmin:xmax] == label
+    Arguments:
+    ----------
+    mask: Array of (h, w) or (d, h, w) defining an image.
 
-def crop_and_binarize3d(mask, box, label):
-    """Crops and binarizes mask within box with given label"""
-    zmin, ymin, xmin, zmax, ymax, xmax = box
-    return mask[zmin:zmax, ymin:ymax, xmin:xmax] == label
+    box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    
+    label: Label value to binarize within cropped mask.
+
+    Returns:
+    --------
+    binary_cropped_mask: Boolean array of (h', w') or (d', h', w').
+    
+    """
+    ndim = len(box) // 2
+    slices = tuple([slice(box[i], box[i+ndim]) for i in range(ndim)])
+    
+    return mask[slices] == label
 
 def mask_iou(mask1, mask2):
-    """Computes the IoU between two masks of the same shape"""
+    """
+    Calculates IoU score between two binary masks.
+
+    Arguments:
+    ---------
+    mask1: Boolean array of (h, w) or (d, h, w) defining an image.
+
+    mask2: Boolean array of (h, w) or (d, h, w) defining an image.
+
+    Returns:
+    --------
+    iou_score: Float IoU score.
+
+    """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     union = np.count_nonzero(np.logical_or(mask1, mask2))
     return intersection / union
 
 def mask_ioa(mask1, mask2):
-    """Computes the IoA between two masks of the same shape"""
+    """
+    Calculates IoA score between two binary masks.
+    The object area is derived from mask2.
+
+    Arguments:
+    ---------
+    mask1: Boolean array of (h, w) or (d, h, w) defining an image.
+
+    mask2: Boolean array of (h, w) or (d, h, w) defining an image.
+
+    Returns:
+    --------
+    ioa_score: Float IoA score.
+
+    """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     area = np.count_nonzero(mask2)
     return intersection / area
@@ -339,12 +327,14 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b):
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
     
+    # merge and sort the ranges from two rles
     merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
     merged_ids = np.concatenate(
         [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
     )
     sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
     
+    # find where the rle ids change between merged runs
     merged_runs = merged_runs[sort_indices]
     merged_ids = merged_ids[sort_indices]
     changes = merged_ids[:-1] != merged_ids[1:]
@@ -475,16 +465,13 @@ def merge_rles(starts_a, runs_a, starts_b, runs_b):
     # convert from runs to ranges
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-    #print(ranges_a, ranges_b)
     
     # merge range
     merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
     sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
     merged_ranges = merged_ranges[sort_indices]
-    #print(merged_ranges)
     
     joined = np.array(join_ranges(merged_ranges))
-    #print(joined)
     
     # convert from ranges to runs
     return joined[:, 0], joined[:, 1] - joined[:, 0]

@@ -84,8 +84,8 @@ if __name__ == "__main__":
     config_name = args.model_config.split('/')[-1].split('.yaml')[0]
     
     # read the config files
-    config = load_train_config(args.model_config)
-    infer_config = load_inference_config(args.infer_config)
+    config = load_config_with_base(args.model_config)
+    infer_config = load_config_with_base(args.infer_config)
         
     # merge the config files
     config['INFERENCE'] = infer_config

@@ -1,1 +1,1 @@
-from empanada.data.single_class_instance_data import SingleClassInstanceDataset
+from empanada.data.single_class_instance_dataset import SingleClassInstanceDataset

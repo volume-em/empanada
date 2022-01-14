@@ -3,33 +3,54 @@ import yaml
 
 __all__ = [
     'load_config',
-    'load_train_config',
-    'load_inference_config'
+    'load_config_with_base'
 ]
 
 def load_config(url):
+    """
+    Loads a yaml config file from the given path/url.
+    """
     with open(url, mode='r') as handle:
         config = yaml.load(handle, Loader=yaml.FullLoader)
 
     return config
 
-def load_train_config(config_file):
+def merge_dicts(dict1, dict2):
+    # loop through keys in dict2
+    for k,v in dict2.items():
+        if isinstance(v, dict) and k in dict1:
+            merge_dicts(dict1[k], dict2[k])
+        else:
+            dict1[k] = v
+
+    return dict1
+
+def load_config_with_base(config_file, base_kw='BASE'):
+    """
+    Loads a training config file with inheritance.
+    """
+
     config = load_config(config_file)
+    has_base = base_kw in config
+    
+    if not has_base:
+        return config
+    
     base_configs = [config]
 
-    # inherit recursively
-    has_base = 'BASE' in config
+    # load configs all the way to root
     while has_base:
-        # get the location of the BASE file
+        # get the location of the base file
         config_file_dir = os.path.dirname(config_file)
-        base_path = config['BASE']
+        base_path = config[base_kw]
 
+        # load the base config
         base_config_path = os.path.join(os.path.abspath(config_file_dir), base_path)
         base_config_file = os.path.relpath(base_config_path)
         base_config = load_config(base_config_file)
 
-        has_base = 'BASE' in base_config
         base_configs.append(base_config)
+        has_base = base_kw in base_config
         config_file = base_config_file
         config = base_config
 
@@ -40,63 +61,7 @@ def load_train_config(config_file):
 
     # update keys with children overwriting parents
     inherited_config = base_configs[0]
-
     for config in base_configs[1:]:
-        # we only go 2 keys deep
-        # keys at first level are:
-        check_keys = ['DATASET', 'MODEL', 'TRAIN', 'EVAL']
-
-        for ckey in check_keys:
-            config_value = config.get(ckey)
-            if config_value != inherited_config[ckey] and config_value is not None:
-                # then assign any parameters to inherited config
-                for pname, pvalue in config_value.items():
-                    inherited_config[ckey][pname] = pvalue
-
-    return inherited_config
-
-def load_inference_config(config_file):
-    config = load_config(config_file)
-    base_configs = [config]
-
-    # inherit recursively
-    has_base = 'BASE' in config
-    while has_base:
-        # get the location of the BASE file
-        config_file_dir = os.path.dirname(config_file)
-        base_path = config['BASE']
-
-        base_config_path = os.path.join(os.path.abspath(config_file_dir), base_path)
-        base_config_file = os.path.relpath(base_config_path)
-        base_config = load_config(base_config_file)
-
-        has_base = 'BASE' in base_config
-        base_configs.append(base_config)
-
-    # reverse the order of the configs so that the root
-    # config file is first in the list
-    base_configs = base_configs[::-1]
-
-    # update keys with children overwriting parents
-    inherited_config = base_configs[0]
-
-    for config in base_configs[1:]:
-        # we only go 2 keys deep
-        # keys at first level are:
-        check_keys = ['engine_params', 'matcher_params']
-
-        for ckey in check_keys:
-            config_value = config.get(ckey)
-            if config_value != inherited_config[ckey] and config_value is not None:
-                # then assign any parameters to inherited config
-                for pname, pvalue in config_value.items():
-                    inherited_config[ckey][pname] = pvalue
-
-        # now the 1 level deep parameters
-        check_keys = ['axes', 'labels', 'filters']
-        for ckey in check_keys:
-            config_value = config.get(ckey)
-            if config_value != inherited_config[ckey] and config_value is not None:
-                inherited_config[ckey] = config_value
+        inherited_config = merge_dicts(inherited_config, config)
 
     return inherited_config

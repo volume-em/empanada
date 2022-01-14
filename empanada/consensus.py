@@ -5,20 +5,29 @@ from empanada.array_utils import *
 
 from tqdm import tqdm
 
-def calculate_clique_ious(G, clique1, clique2):
+def average_cluster_ious(G, cluster1, cluster2):
+    """
+    
+    """
     all_ious = []
-    for node1 in clique1:
-        for node2 in clique2:
+
+    # loop over all nodes in the two clusters
+    # to get pairwise IoU scores
+    for node1 in cluster1:
+        for node2 in cluster2:
             if G.has_edge(node1, node2):
                 all_ious.append(G[node1][node2]['iou'])
             else:
                 # iou too small to have an edge, so it's 0
                 all_ious.append(0.)
             
+    # average all iou scores for instance that had
+    # overlap with each other across clusters
     return sum(all_ious) / len(all_ious)
 
-def create_clique_graph(G, iou_threshold, min_clique_iou=0.1):
+def create_graph_of_clusters(G, iou_threshold, min_cluster_iou=0.1):
     # get a list of edges to drop from the graph
+    # because IoUs are below the threshold
     drop_edges = []
     for (u, v, d) in G.edges(data=True):
         if d['iou'] < iou_threshold:
@@ -29,39 +38,49 @@ def create_clique_graph(G, iou_threshold, min_clique_iou=0.1):
     for edge in drop_edges:
         H.remove_edge(*edge)
         
-    # make each connected component (i.e. clique)
+    # make each connected component (i.e. cluster)
     # in H a node in a new graph
-    clique_graph = nx.Graph()
-    for i,clique in enumerate(nx.connected_components(H)):
-        clique_graph.add_node(i, clique=clique)
+    cluster_graph = nx.Graph()
+    for i,cluster in enumerate(nx.connected_components(H)):
+        cluster_graph.add_node(i, cluster=cluster)
         
     # edge weights are average IoUs between pairs within
-    # separate cliques
-    clique_nodes = list(clique_graph.nodes)
-    for i,node1 in enumerate(clique_nodes):
-        for j,node2 in enumerate(clique_nodes[i+1:]):
-            clique1 = clique_graph.nodes[node1]['clique']
-            clique2 = clique_graph.nodes[node2]['clique']
-            clique_iou = calculate_clique_ious(G, clique1, clique2)
-            if clique_iou >= min_clique_iou:
-                clique_graph.add_edge(node1, node2, iou=clique_iou)
-            
-    return clique_graph
+    # separate clusters
+    cluster_nodes = list(cluster_graph.nodes)
+    for i,node1 in enumerate(cluster_nodes):
+        for j,node2 in enumerate(cluster_nodes[i+1:]):
+            # measure average ious between all instances within
+            # withing two separate clusters
+            cluster1 = cluster_graph.nodes[node1]['cluster']
+            cluster2 = cluster_graph.nodes[node2]['cluster']
+            cluster_iou = average_cluster_ious(G, cluster1, cluster2)
 
-def pull_clique(G, src, dst):
-    # merge clique from src to dst
-    # and delete edge from the graph
-    src_clique = G.nodes[src]['clique']
-    G.nodes[dst]['clique'] = G.nodes[dst]['clique'].union(src_clique)
+            # only add an edge when clusters have average IoU
+            # over a small threshold value
+            if cluster_iou >= min_cluster_iou:
+                cluster_graph.add_edge(node1, node2, iou=cluster_iou)
+            
+    return cluster_graph
+
+def push_cluster(G, src, dst):
+    # push the src cluster to the destination cluster node
+    # and remove the edge that connects them
+    src_cluster = G.nodes[src]['cluster']
+    G.nodes[dst]['cluster'] = G.nodes[dst]['cluster'].union(src_cluster)
     G.remove_edge(src, dst)
     
     return G
 
-def merge_cliques(G):
+def merge_clusters(G):
+    # copy to avoid inplace changes
     H = G.copy()
+
     count = 0
+    # merge clusters until there are no
+    # clusters with meaningful IoU between their
+    # instances
     while len(H.edges()) > 0:
-        # sorted nodes by the number of neighbors
+        # most connected from sorted nodes by the number of neighbors
         most_connected = sorted(
             H.nodes, key=lambda x: len(list(H.neighbors(x))), reverse=True
         )[0]
@@ -69,40 +88,51 @@ def merge_cliques(G):
         # get neighbors of the most connected node
         neighbors = list(H.neighbors(most_connected))
         
-        # sort neighbors by the size of their cliques
+        # sort neighbors by the size of their clusters
         neighbors = sorted(
-            neighbors, key=lambda x: len(H.nodes[x]['clique']), reverse=True
+            neighbors, key=lambda x: len(H.nodes[x]['cluster']), reverse=True
         )
         
-        most_connected_clique = H.nodes[most_connected]['clique']
-        is_pushed = False
+        # decide whether to push the most connected cluster to
+        # merge with its neighbors or to merge all the neighbors
+        # into the most connected cluster
+        most_connected_cluster = H.nodes[most_connected]['cluster']
+        push_most_connected = False
         for neighbor in neighbors:
-            if len(H.nodes[neighbor]['clique']) > len(most_connected_clique):
-                pull_clique(H, most_connected, neighbor)
-                is_pushed = True
-            elif is_pushed:
-                pull_clique(H, most_connected, neighbor)
+            # if neighbor has a bigger cluster than
+            # the most connected cluster will be absorbed
+            # by each of its neighbors
+            if len(H.nodes[neighbor]['cluster']) > len(most_connected_cluster):
+                push_cluster(H, most_connected, neighbor)
+                push_most_connected = True
+            elif push_most_connected:
+                push_cluster(H, most_connected, neighbor)
             else:
                 break
                 
-        if is_pushed:
+        if push_most_connected:
+            # most connected cluster is rejected as an instance
             H.remove_node(most_connected)
         else:
-            # push to neighbors with larger cliques
+            # most connected cluster is accepted as an instance
+            # pull all the neighboring clusters 
             neighbors = list(H.neighbors(most_connected))
             neighbors = sorted(
-                neighbors, key=lambda x: len(H.nodes[x]['clique'])
+                neighbors, key=lambda x: len(H.nodes[x]['cluster'])
             )
-            # pull from neighbors with smaller or equal cliques
+            # push from neighbors with smaller or equal clusters
             for neighbor in neighbors:
-                most_connected_clique = H.nodes[most_connected]['clique']
-                if len(H.nodes[neighbor]['clique']) <= len(most_connected_clique):
-                    pull_clique(H, neighbor, most_connected)
+                most_connected_cluster = H.nodes[most_connected]['cluster']
+                if len(H.nodes[neighbor]['cluster']) <= len(most_connected_cluster):
+                    push_cluster(H, neighbor, most_connected)
                     H.remove_node(neighbor)
+
+                    # TODO: should most connected node inherit it's
+                    # neighbors neighbors?
                     
         count += 1
         
-        if count > 1000:
+        if count > 100:
             print('Clique merging while loop stuck!', H.nodes(data=True), H.edges(data=True))
             break
             
@@ -137,7 +167,7 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
     # compute pairwise overlaps for all instance boxes
     # TODO: replace pairwise iou calculation with something
     # more memory efficient (only matters when N is large)
-    box_ious = pairwise_box_iou3d(object_boxes)
+    box_ious = box_iou(object_boxes)
     #box_matches = np.array(box_ious.nonzero()).T
     box_matches = np.array(
         np.where(box_ious > 0.01)
@@ -185,25 +215,25 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
             continue
         
         sg = graph.subgraph(comp)
-        clique_graph = create_clique_graph(sg, 0.75)
-        clique_graph = merge_cliques(clique_graph)
+        cluster_graph = create_graph_of_clusters(sg, 0.75)
+        cluster_graph = merge_clusters(cluster_graph)
                 
-        for node in clique_graph.nodes:
-            clique = list(clique_graph.nodes[node]['clique'])
+        for node in cluster_graph.nodes:
+            cluster = list(cluster_graph.nodes[node]['cluster'])
                 
-            if len(clique) < vote_thr_count:
+            if len(cluster) < vote_thr_count:
                 continue
                 
             # merge boxes and coords from nodes
-            node0 = clique[0]
+            node0 = cluster[0]
             merged_box = graph.nodes[node0]['box']
-            for node_id in clique[1:]:
-                merged_box = merge_boxes3d(merged_box, graph.nodes[node_id]['box'])
+            for node_id in cluster[1:]:
+                merged_box = merge_boxes(merged_box, graph.nodes[node_id]['box'])
             
             # vote on indices that should belong to an object
             all_ranges = np.concatenate([
                 np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1) 
-                for node_id in clique
+                for node_id in cluster
             ])
             sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
             all_ranges = all_ranges[sort_idx]

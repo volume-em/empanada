@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from glob import glob
 from torch.utils.data import Dataset
+from copy import deepcopy
 
 __all__ = [
     'BaseDataset'

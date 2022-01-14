@@ -15,10 +15,13 @@ MODEL:
   low_level_channels_project: [ 32 ]
   atrous_rates: [ 2, 4, 6 ]
   aspp_channels: null
+  aspp_dropout: 0.5
   ins_decoder: True
+  ins_ratio: 0.5
   confidence_head: False
   confidence_bins: 5
-
+  
+  
   # point_rend arguments
   num_fc: 3
   train_num_points: 1024
@@ -40,6 +43,7 @@ TRAIN:
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
 
   model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_DeepLab_PointRend"
   save_freq: 1
@@ -56,8 +60,8 @@ TRAIN:
   lr_schedule: "OneCycleLR"
   schedule_params:
     max_lr: 0.003
-    epochs: 200
-    steps_per_epoch: 305
+    epochs: 50
+    steps_per_epoch: 332
     pct_start: 0.3
 
   # setup the optimizer
@@ -89,12 +93,12 @@ TRAIN:
   workers: 8
 
   augmentations:
-    - { aug: "RandomScale", scale_limit: [ -0.5, 1 ]}
+    - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}
     - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }
     #- { aug: "RandomResizedCrop", height: 256, width: 256, scale: [ 0.5, 2 ], ratio: [ 0.8, 1.2 ] }
     - { aug: "RandomCrop", height: 256, width: 256}
     - { aug: "Rotate", limit: 180, border_mode: 0 }
-    - { aug: "RandomBrightnessContrast", brightness_limit: 0.2, contrast_limit: 0.2 }
+    - { aug: "RandomBrightnessContrast", brightness_limit: 0.3, contrast_limit: 0.3 }
     - { aug: "HorizontalFlip" }
     - { aug: "VerticalFlip" }
 

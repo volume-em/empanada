@@ -24,7 +24,7 @@ class SingleClassInstanceDataset(_BaseDataset):
         weight_gamma=0.3,
         has_confidence=False
     ):
-        super(MitoData, self).__init__(
+        super(SingleClassInstanceDataset, self).__init__(
             data_dir, transforms, heatmap_sigma, weight_gamma, has_confidence
         )
         
@@ -54,7 +54,7 @@ class SingleClassInstanceDataset(_BaseDataset):
             # category_id is default 1 for mitos
             coco_bbox = (rpb[1], rpb[0], rpb[3], rpb[2], 1, ix)
             bboxes.append(coco_bbox)
-            
+        
         #pack outputs into a dict
         output = {
             'image': image,

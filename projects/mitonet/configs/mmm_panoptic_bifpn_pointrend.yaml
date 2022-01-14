@@ -26,5 +26,5 @@ TRAIN:
   schedule_params:
     max_lr: 0.003
     epochs: 30
-    steps_per_epoch: 325
+    steps_per_epoch: 332
     pct_start: 0.3
