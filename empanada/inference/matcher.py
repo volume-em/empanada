@@ -163,7 +163,8 @@ class RLEMatcher:
         label_divisor,
         merge_iou_thr=0.25, 
         merge_ioa_thr=0.25,
-        assign_new=True
+        assign_new=True,
+        **kwargs
     ):
         self.class_id = class_id
         self.label_divisor = label_divisor

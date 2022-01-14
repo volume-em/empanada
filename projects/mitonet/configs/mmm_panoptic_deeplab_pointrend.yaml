@@ -11,8 +11,8 @@ MODEL:
   num_classes: 1
   stage4_stride: 16
   decoder_channels: 256
-  low_level_stages: [ 3, 2, 1 ]
-  low_level_channels_project: [ 128, 64, 32 ]
+  low_level_stages: [ 1 ]
+  low_level_channels_project: [ 32 ]
   atrous_rates: [ 2, 4, 6 ]
   aspp_channels: null
   ins_decoder: True
