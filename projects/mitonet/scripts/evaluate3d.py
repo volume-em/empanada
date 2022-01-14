@@ -185,6 +185,7 @@ if __name__ == "__main__":
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
             h, w = image.size()[-2:]
+            
             pan_seg = factor_pad_tensor(image, 128)
             pan_seg = inference_engine(image)
             
@@ -287,7 +288,7 @@ if __name__ == "__main__":
             f'{config_name}_{class_name}_pred', shape=shape, dtype=np.uint64,
             overwrite=True, chunks=(1, None, None)
         )
-        zarr_fill_instances(consensus_vol, consensus_tracker.instances)
+        #zarr_fill_instances(consensus_vol, consensus_tracker.instances)
         consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
     
     # run evaluation

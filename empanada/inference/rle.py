@@ -21,8 +21,9 @@ def pan_seg_to_rle_seg(
         instance_seg[outside_mask] = 0
         
         # relabel connected components
-        instance_seg = measure.label(instance_seg).astype(instance_seg.dtype)
-        instance_seg[instance_seg > 0] += min_id
+        if force_connected:
+            instance_seg = measure.label(instance_seg).astype(instance_seg.dtype)
+            instance_seg[instance_seg > 0] += min_id
         
         # measure the regionprops
         instance_attrs = {}
@@ -38,4 +39,20 @@ def pan_seg_to_rle_seg(
         rle_seg[label] = instance_attrs
         
     return rle_seg
-        
+
+def rle_seg_to_pan_seg(
+    rle_seg,
+    shape
+):
+    # convert from dense panoptic seg to sparse rle segment class
+    pan_seg = np.zeros(shape, dtype='int').ravel()
+    
+    for instance_attrs in rle_seg.values():
+        for object_id, attrs in instance_attrs.items():
+            starts = attrs['starts']
+            runs = attrs['runs']
+            
+            for s,r in zip(starts, runs):
+                pan_seg[s:s+r] = object_id
+                
+    return pan_seg.reshape(shape)
