@@ -330,16 +330,16 @@ class MultiScaleInferenceEngine:
         # first find the object centers
         ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
 
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            return torch.zeros_like(ctr_hmp)
-
         # grid step size for pixel grouping
         step = 4 if self.coarse_boundaries else 1
 
-        # grouped pixels should be integers,
-        # but we need them in float type for upsampling
-        instance_cells = group_pixels(ctr, offsets, step=step).float()[None] # (1, 1, H, W)
+        # no objects, return zeros
+        if ctr.size(0) == 0:
+            instance_cells = torch.zeros_like(ctr_hmp)
+        else:
+            # grouped pixels should be integers,
+            # but we need them in float type for upsampling
+            instance_cells = group_pixels(ctr, offsets, step=step).float()[None] # (1, 1, H, W)
 
         # scale again by the upsampling factor times step
         instance_cells = F.interpolate(instance_cells, scale_factor=int(upsampling * step), mode='nearest')
@@ -372,11 +372,9 @@ class MultiScaleInferenceEngine:
         sem_logits = coarse_sem_seg_logits.clone()
 
         # seg to be upsampled by factor of 4 and then
-        # by factor of output_upsample
-        scale_factor = upsampling * 4
-
+        # by factor of upsample
         sem, sem_logits = self.upsample_logits(
-            sem_logits, coarse_sem_seg_logits, features, scale_factor
+            sem_logits, coarse_sem_seg_logits, features, upsampling * 4
         )
 
         # harden the segmentation
