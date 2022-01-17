@@ -219,7 +219,7 @@ class InstanceTracker:
             else:
                 # merge boxes and coords
                 instance_dict = self.instances[label]
-                self.instances[label]['box'] = merge_boxes3d(box, instance_dict['box'])
+                self.instances[label]['box'] = merge_boxes(box, instance_dict['box'])
                 self.instances[label]['starts'].append(starts)
                 self.instances[label]['runs'].append(runs)
                 

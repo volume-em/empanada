@@ -3,7 +3,7 @@ axes: [ 'xy', 'xz', 'yz' ]
 
 # list of all segmentation labels
 labels: [ 1 ]
-  
+
 # parameters for the inference engine
 engine_params:
   median_kernel_size: 7
@@ -14,7 +14,9 @@ engine_params:
   nms_threshold: 0.1
   nms_kernel: 7
   confidence_thr: 0.3
-    
+  input_scale: 1
+  scales: [ 1 ]
+
 # parameters for instance matching
 # across 2d images
 matcher_params:

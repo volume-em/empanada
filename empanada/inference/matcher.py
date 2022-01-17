@@ -26,7 +26,7 @@ def unpack_attrs(instance_rle_seg):
 def merge_attrs(rle_attr1, rle_attr2):
     # extract labels, boxes, and rle for a given class id
     rle_attr_out = {}
-    rle_attr_out['box'] = merge_boxes2d(rle_attr1['box'], rle_attr2['box'])
+    rle_attr_out['box'] = merge_boxes(rle_attr1['box'], rle_attr2['box'])
     
     starts, runs = merge_rles(
         rle_attr1['starts'], rle_attr1['runs'],
