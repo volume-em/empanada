@@ -1,5 +1,6 @@
 import os
 import cv2
+import math
 import random
 import numpy as np
 import albumentations as A
@@ -7,9 +8,24 @@ from copy import deepcopy
 from skimage.filters import gaussian
 
 __all__ = [
+    'resize_by_factor',
     'CopyPaste',
     'FactorPad'
 ]
+
+def resize_by_factor(image, scale_factor=1):
+    # do nothing
+    if scale_factor == 1:
+        return image
+
+    # cv2 expects (w, h) for image size
+    h, w = image.shape
+    dh = math.ceil(h / scale_factor)
+    dw = math.ceil(w / scale_factor)
+
+    image = cv2.resize(image, (dw, dh), cv2.INTER_LINEAR)
+
+    return image
 
 def image_copy_paste(img, paste_img, alpha, blend=True, sigma=1):
     if alpha is not None:
@@ -27,7 +43,7 @@ def masks_copy_paste(masks, paste_masks, alpha):
     if alpha is not None:
         # eliminate pixels that will be pasted over
         masks = [
-            np.logical_and(mask, np.logical_xor(mask, alpha)).astype(np.uint8) 
+            np.logical_and(mask, np.logical_xor(mask, alpha)).astype(np.uint8)
             for mask in masks
         ]
         masks.extend(paste_masks)
@@ -38,7 +54,7 @@ def extract_bboxes(masks):
     bboxes = []
     if len(masks) == 0:
         return bboxes
-    
+
     h, w = masks[0].shape
     for mask in masks:
         yindices = np.where(np.any(mask, axis=0))[0]
@@ -247,7 +263,7 @@ class CopyPaste(A.DualTransform):
             "pct_objects_paste",
             "max_paste_objects"
         )
-    
+
 def factor_pad(image, factor=128):
     h, w = image.shape[:2]
     pad_bottom = factor - h % factor if h % factor != 0 else 0
@@ -258,14 +274,14 @@ def factor_pad(image, factor=128):
         padding = ((0, pad_bottom), (0, pad_right))
     else:
         raise Exception
-        
+
     padded_image = np.pad(image, padding)
     return padded_image
 
 class FactorPad(A.Lambda):
     def __init__(self, factor=128):
-        
+
         def pad_func(x, **kwargs):
             return factor_pad(x, factor=factor)
-        
+
         super().__init__(image=pad_func, mask=pad_func)

@@ -3,9 +3,9 @@ import argparse
 import zarr
 import numpy as np
 import torch
-from skimage import io
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from skimage import io
 
 import torch.multiprocessing as mp
 from torch.utils.data import DataLoader

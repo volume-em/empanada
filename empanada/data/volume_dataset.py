@@ -3,20 +3,7 @@ import cv2
 import dask.array as da
 from torch.utils.data import Dataset
 from empanada.array_utils import take
-
-def resize(image, scale_factor=1):
-    # do nothing
-    if scale_factor == 1:
-        return image
-
-    # cv2 expects (w, h) for image size
-    h, w = image.shape
-    dh = math.ceil(h / scale_factor)
-    dw = math.ceil(w / scale_factor)
-
-    image = cv2.resize(image, (dw, dh), cv2.INTER_LINEAR)
-
-    return image
+from empanda.data.utils import resize_by_factor
 
 class VolumeDataset(Dataset):
     def __init__(self, array, axis=0, tfs=None, scale=1):
@@ -41,7 +28,7 @@ class VolumeDataset(Dataset):
             image = image.compute()
 
         # downsample image by scale
-        image = resize(image, self.scale)
+        image = resize_by_factor(image, self.scale)
         image = self.tfs(image=image)['image']
 
         return {'index': idx, 'image': image}

@@ -2,6 +2,10 @@ import random
 import numpy as np
 import albumentations as A
 
+__all__ = [
+    'copy_paste_class'
+]
+
 def copy_paste_class(dataset_class):
     def _split_transforms(self):
         split_index = None
@@ -51,7 +55,7 @@ def copy_paste_class(dataset_class):
             paste_idx = np.random.choice(
                 range(len(self)), p=self.weights.numpy() / self.weights.sum().item()
             )
-            
+
             random.randint(0, len(self) - 1)
             paste_img_data = self.load_example(paste_idx)
             for k in list(paste_img_data.keys()):

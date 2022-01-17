@@ -3,15 +3,19 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import Sampler
 
+__all__ = [
+    'DistributedWeightedSampler'
+]
+
 class DistributedWeightedSampler(Sampler):
     """
     Adapted from https://discuss.pytorch.org/t/how-to-use-my-own-sampler-when-i-already-use-distributedsampler/62143/7.
     """
     def __init__(
-        self, 
-        dataset, 
+        self,
+        dataset,
         weights,
-        num_replicas=None, 
+        num_replicas=None,
         rank=None,
         shuffle=True,
         drop_last=True
@@ -24,21 +28,21 @@ class DistributedWeightedSampler(Sampler):
             if not dist.is_available():
                 raise RuntimeError("Requires distributed package to be available")
             rank = dist.get_rank()
-            
+
         self.dataset = dataset
         self.weights = weights
         self.num_replicas = num_replicas
         self.rank = rank
         self.epoch = 0
         self.drop_last = drop_last
-        
+
         if self.drop_last and len(self.dataset) % self.num_replicas != 0:
             self.num_samples = math.ceil(
                 (len(self.dataset) - self.num_replicas) / self.num_replicas
             )
         else:
             self.num_samples = math.ceil(len(self.dataset) / self.num_replicas)
-            
+
         self.total_size = self.num_samples * self.num_replicas
         self.shuffle = shuffle
 
@@ -67,10 +71,10 @@ class DistributedWeightedSampler(Sampler):
         assert len(indices) == self.num_samples
 
         rand_tensor = torch.multinomial(
-            self.weights[self.rank:self.total_size:self.num_replicas], 
+            self.weights[self.rank:self.total_size:self.num_replicas],
             self.num_samples
         )
-        
+
         return iter(rand_tensor.tolist())
 
     def __len__(self):
@@ -141,7 +145,7 @@ class DistributedEvalSampler(Sampler):
             if not dist.is_available():
                 raise RuntimeError("Requires distributed package to be available")
             rank = dist.get_rank()
-            
+
         self.dataset = dataset
         self.num_replicas = num_replicas
         self.rank = rank
