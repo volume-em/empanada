@@ -338,22 +338,23 @@ class MultiScaleInferenceEngine:
         step = 4 if self.coarse_boundaries else 1
 
         # grouped pixels should be integers,
-        # but we need them in float type for later
-        return group_pixels(ctr, offsets, step=step).float()[None] # (1, 1, H, W)
+        # but we need them in float type for upsampling
+        instance_cells = group_pixels(ctr, offsets, step=step).float()[None] # (1, 1, H, W)
+
+        # scale again by the upsampling factor times step
+        instance_cells = F.interpolate(instance_cells, scale_factor=int(upsampling * step), mode='nearest')
+        return instance_cells
 
     @torch.no_grad()
-    def upsample_logits_and_cells(
+    def upsample_logits(
         self,
         sem_logits,
         coarse_sem_seg_logits,
         features,
-        instance_cells,
         scale_factor
     ):
         # apply render model
         if scale_factor >= 2:
-            instance_cells = F.interpolate(instance_cells, scale_factor=scale_factor, mode='nearest')
-
             # each forward pass upsamples sem_logits by a factor of 2
             for _ in range(int(math.log(scale_factor, 2))):
                 sem_logits = self.render_model(sem_logits, coarse_sem_seg_logits, features)
@@ -364,7 +365,7 @@ class MultiScaleInferenceEngine:
         else:
             sem = torch.sigmoid(sem_logits)
 
-        return sem, sem_logits, instance_cells
+        return sem, sem_logits
 
     @torch.no_grad()
     def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
@@ -374,8 +375,8 @@ class MultiScaleInferenceEngine:
         # by factor of output_upsample
         scale_factor = upsampling * 4
 
-        sem, sem_logits, instance_cells = self.upsample_logits_and_cells(
-            sem_logits, coarse_sem_seg_logits, features, instance_cells, scale_factor
+        sem, sem_logits = self.upsample_logits(
+            sem_logits, coarse_sem_seg_logits, features, scale_factor
         )
 
         # harden the segmentation
