@@ -2,6 +2,24 @@ import math
 import numpy as np
 import numba
 
+def take(array, indices, axis=0):
+    indices = tuple([
+        slice(None) if n != axis else indices
+        for n in range(array.ndim)
+    ])
+
+    return array[indices]
+
+def put(array, indices, value, axis=0):
+    indices = tuple([
+        slice(None) if n != axis else indices
+        for n in range(array.ndim)
+    ])
+
+    # modify the array inplace
+    array[indices] = value
+    return array[indices]
+
 def box_area(boxes):
     """
     Computes the area/volume of a set of boxes.
@@ -18,7 +36,7 @@ def box_area(boxes):
     """
 
     ndim = boxes.shape[1] // 2
-    
+
     dims = []
     for i in range(ndim):
         dims.append(boxes[:, i+ndim] - boxes[:, i])
@@ -43,7 +61,7 @@ def box_intersection(boxes1, boxes2=None):
 
     Returns:
     --------
-    intersections: Array of (n, m) defining pairwise area/volume 
+    intersections: Array of (n, m) defining pairwise area/volume
     intersection between boxes.
 
     """
@@ -53,15 +71,15 @@ def box_intersection(boxes1, boxes2=None):
         boxes2 = boxes1
 
     ndim = boxes1.shape[1] // 2
-    
+
     box_coords1 = np.split(boxes1, ndim*2, axis=1)
     box_coords2 = np.split(boxes2, ndim*2, axis=1)
-    
+
     intersect_dims = []
     for i in range(ndim):
         pairs_max_low = np.maximum(box_coords1[i], np.transpose(box_coords2[i]))
         pairs_min_high = np.minimum(box_coords1[i+ndim], np.transpose(box_coords2[i+ndim]))
-        
+
         intersect_dims.append(
             np.maximum(np.zeros(pairs_max_low.shape), pairs_min_high - pairs_max_low)
         )
@@ -124,7 +142,7 @@ def box_iou(boxes1, boxes2=None):
     intersect = box_intersection(boxes1, boxes2)
     area1 = box_area(boxes1)
     area2 = box_area(boxes2)
-    
+
     # union is a matrix of same size as intersect
     union = area1[:, None] + area2[None, :] - intersect
     return intersect / union
@@ -146,21 +164,21 @@ def rle_encode(indices):
     """
     # where indices are not contiguous
     changes = np.where(indices[1:] != indices[:-1] + 1)[0] + 1
-    
+
     # add first and last indices
     changes = np.insert(changes, 0, [0], axis=0)
     changes = np.append(changes, [len(indices)], axis=0)
 
     # measure distance between changes (i.e. run length)
     runs = changes[1:] - changes[:-1]
-    
+
     # remove last change
     changes = changes[:-1]
-    
+
     assert(len(changes) == len(runs))
-    
+
     return indices[changes], runs
-    
+
 def rle_decode(starts, runs):
     """
     Decodes run length encoding arrays to an array of indices.
@@ -198,7 +216,7 @@ def rle_to_string(starts, runs):
     Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
     """
-    
+
     return ' '.join([f'{i} {r}' for i,r in zip(starts, runs)])
 
 def string_to_rle(encoding):
@@ -231,17 +249,17 @@ def crop_and_binarize(mask, box, label):
     mask: Array of (h, w) or (d, h, w) defining an image.
 
     box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-    
+
     label: Label value to binarize within cropped mask.
 
     Returns:
     --------
     binary_cropped_mask: Boolean array of (h', w') or (d', h', w').
-    
+
     """
     ndim = len(box) // 2
     slices = tuple([slice(box[i], box[i+ndim]) for i in range(ndim)])
-    
+
     return mask[slices] == label
 
 def mask_iou(mask1, mask2):
@@ -286,7 +304,7 @@ def mask_ioa(mask1, mask2):
 @numba.jit(nopython=True)
 def intersection_from_ranges(merged_runs, changes):
     total_inter = 0
-    
+
     check_run = None
     for is_change, run1, run2 in zip(changes, merged_runs[:-1], merged_runs[1:]):
         if is_change:
@@ -296,8 +314,8 @@ def intersection_from_ranges(merged_runs, changes):
 
         if check_run[1] < run2[0]:
             continue
-        
-        total_inter += min(check_run[1], run2[1]) - max(check_run[0], run2[0])   
+
+        total_inter += min(check_run[1], run2[1]) - max(check_run[0], run2[0])
 
     return total_inter
 
@@ -305,44 +323,44 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b):
     # convert from runs to ends
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-    
+
     merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
     merged_ids = np.concatenate(
         [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
     )
     sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
-    
+
     merged_runs = merged_runs[sort_indices]
     merged_ids = merged_ids[sort_indices]
     changes = merged_ids[:-1] != merged_ids[1:]
-    
+
     # calculate intersection and divide by area
     intersection = intersection_from_ranges(merged_runs, changes)
     area = runs_b.sum()
-    
+
     return intersection / area
 
 def rle_iou(starts_a, runs_a, starts_b, runs_b):
     # convert from runs to ends
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-    
+
     # merge and sort the ranges from two rles
     merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
     merged_ids = np.concatenate(
         [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
     )
     sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
-    
+
     # find where the rle ids change between merged runs
     merged_runs = merged_runs[sort_indices]
     merged_ids = merged_ids[sort_indices]
     changes = merged_ids[:-1] != merged_ids[1:]
-    
+
     # calculate intersection and divide by union
     intersection = intersection_from_ranges(merged_runs, changes)
     union = runs_a.sum() + runs_b.sum() - intersection
-    
+
     return intersection / union
 
 @numba.jit(nopython=True)
@@ -370,7 +388,7 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
     if s is not None:
         e = s + 1 if e is None else e
         split_voted_ranges.append([s, e])
-    
+
     return split_voted_ranges
 
 @numba.jit(nopython=True)
@@ -396,25 +414,25 @@ def extend_range(range1, range2, num_votes):
     # increate vote totals
     for i in range(first_idx, last_idx):
         num_votes[i] += 1
-        
+
     return range1, num_votes
 
 @numba.jit(nopython=True)
 def rle_voting(ranges, vote_thr=2):
     # ranges that past the vote_thr
     voted_ranges = []
-    
+
     # initialize starting range and votes
     # for each index in the range
     running_range = None
     num_votes = None
-    
+
     for range1,range2 in zip(ranges[:-1], ranges[1:]):
         if running_range is None:
             running_range = range1
             # all indices get 1 vote from range1
             num_votes = [1 for _ in range(range1[1] - range1[0])]
-            
+
         # if starting index in range 2 is greater
         # than the end index of the running range there
         # is no overlap and we start tracking a new range
@@ -430,16 +448,16 @@ def rle_voting(ranges, vote_thr=2):
             running_range, num_votes = extend_range(
                 running_range, range2, num_votes
             )
-            
+
     # if range was still going at the end
     # of the loop then finish processing it
     if running_range is not None:
         voted_ranges.extend(
             split_range_by_votes(running_range, num_votes, vote_thr)
         )
-            
+
     return voted_ranges
-    
+
 @numba.jit(nopython=True)
 def join_ranges(ranges):
     joined = []
@@ -447,31 +465,31 @@ def join_ranges(ranges):
     for range1,range2 in zip(ranges[:-1], ranges[1:]):
         if running_range is None:
             running_range = range1
-        
+
         if running_range[1] >= range2[0]:
             running_range[1] = max(running_range[1], range2[1])
         else:
             joined.append(running_range)
             running_range = None
-            
+
     if running_range is not None:
         joined.append(running_range)
     else:
         joined.append(range2)
-        
+
     return joined
 
 def merge_rles(starts_a, runs_a, starts_b, runs_b):
     # convert from runs to ranges
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-    
+
     # merge range
     merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
     sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
     merged_ranges = merged_ranges[sort_indices]
-    
+
     joined = np.array(join_ranges(merged_ranges))
-    
+
     # convert from ranges to runs
     return joined[:, 0], joined[:, 1] - joined[:, 0]

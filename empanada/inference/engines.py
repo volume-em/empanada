@@ -322,7 +322,7 @@ class MultiScaleInferenceEngine:
         # coarse boundaries are faster and memory friendly
         # but can look "blocky" in the final segmentation
         scale_factor = 1 if self.coarse_boundaries else 4
-        
+
         if scale_factor > 1:
             ctr_hmp = F.interpolate(ctr_hmp, scale_factor=scale_factor, mode='bilinear', align_corners=True)
             offsets = F.interpolate(offsets, scale_factor=scale_factor, mode='bilinear', align_corners=True)
@@ -412,7 +412,7 @@ class MultiScaleInferenceEngine:
     def __call__(self, image, upsampling=1):
         assert math.log(upsampling, 2).is_integer(),\
         "Upsampling factor not log base 2!"
-        
+
         # check that image is 4d (N, C, H, W) and has a
         # batch dim of 1, larger batch size raises exception
         assert image.ndim == 4 and image.size(0) == 1
@@ -447,7 +447,7 @@ class MultiScaleInferenceEngine:
         # calculate the instance cells
         instance_cells = self.get_instance_cells(median_out['ctr_hmp'], median_out['offsets'], upsampling)
         pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells, upsampling)
-        
+
         # remove padding from the pan_seg
         pan_seg = pan_seg[..., :(h * upsampling), :(w * upsampling)]
 
