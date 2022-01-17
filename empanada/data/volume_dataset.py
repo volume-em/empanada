@@ -3,7 +3,7 @@ import cv2
 import dask.array as da
 from torch.utils.data import Dataset
 from empanada.array_utils import take
-from empanda.data.utils import resize_by_factor
+from empanada.data.utils import resize_by_factor
 
 class VolumeDataset(Dataset):
     def __init__(self, array, axis=0, tfs=None, scale=1):
