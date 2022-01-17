@@ -211,7 +211,6 @@ if __name__ == "__main__":
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
                                 pin_memory=(device == 'gpu'), drop_last=False, num_workers=num_workers)
 
-        fill_index = 0
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
 
@@ -220,7 +219,7 @@ if __name__ == "__main__":
             pan_seg = inference_engine(image, upsampling=args.downsample_f)
 
             if pan_seg is None:
-                # building the queue
+                # building the median queue
                 queue.put(None)
                 continue
             else:

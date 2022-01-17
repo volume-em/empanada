@@ -240,7 +240,7 @@ def rle_matcher(
         ioa_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype=np.float32)
 
     # match the boxes
-    box_matches = np.array(box_iou2d(target_boxes, match_boxes).nonzero()).T
+    box_matches = np.array(box_iou(target_boxes, match_boxes).nonzero()).T
     for r1, r2 in box_matches:
         iou_matrix[r1, r2] = rle_iou(
             target_starts[r1], target_runs[r1],
