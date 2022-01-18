@@ -160,7 +160,7 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
         for instance_id, instance_attr in tr.instances.items():
             tracker_indices.append(tr_index)
             object_labels.append(int(instance_id))
-            object_boxes.append(instance_attr['box'])
+            object_boxes.append(instance_attr['box'])            
             object_starts.append(instance_attr['starts'])
             object_runs.append(instance_attr['runs'])
             
