@@ -9,9 +9,10 @@ __all__ = [
 def copy_paste_class(dataset_class):
     def _split_transforms(self):
         split_index = None
-        for ix, tf in enumerate(list(self.transforms.transforms)):
-            if 'CopyPaste' in tf.get_class_fullname():
-                split_index = ix
+        if self.transforms is not None:
+            for ix, tf in enumerate(list(self.transforms.transforms)):
+                if 'CopyPaste' in tf.get_class_fullname():
+                    split_index = ix
 
         if split_index is not None:
             tfs = list(self.transforms.transforms)
@@ -67,7 +68,7 @@ def copy_paste_class(dataset_class):
             img_data['paste_index'] = paste_idx
 
         return img_data
-
+    
     setattr(dataset_class, '_split_transforms', _split_transforms)
     setattr(dataset_class, 'load_pasted_example', load_pasted_example)
 

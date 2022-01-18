@@ -168,14 +168,12 @@ def main():
     torch.quantization.prepare(cpu_base_model, inplace=True)
 
     # calibrate with the training set
-    for i, batch in enumerate(train_loader):
+    for i in range(num_calibration_batches):
+        batch = iter(train_loader).next()
         print(f'Calibration batch {i + 1} of {num_calibration_batches}')
         with torch.no_grad():
             images = batch['image']
             output = cpu_base_model(images)
-
-        if i == num_calibration_batches - 1:
-            break
 
     torch.quantization.convert(cpu_base_model, inplace=True)
     print('Model quantized successfully!')

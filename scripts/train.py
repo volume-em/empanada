@@ -314,7 +314,8 @@ def main_worker(gpu, ngpus_per_node, config):
 
     train_loader = DataLoader(
         train_dataset, batch_size=config['TRAIN']['batch_size'], shuffle=(train_sampler is None),
-        num_workers=config['TRAIN']['workers'], pin_memory=torch.cuda.is_available(), sampler=train_sampler
+        num_workers=config['TRAIN']['workers'], pin_memory=torch.cuda.is_available(), sampler=train_sampler,
+        drop_last=True
     )
 
     if config['EVAL']['eval_dir'] is not None:
