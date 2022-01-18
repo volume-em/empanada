@@ -19,8 +19,10 @@ from empanada.inference.tracker import InstanceTracker
 from empanada.array_utils import take, put
 from empanada.zarr_utils import *
 from empanada.consensus import merge_objects3d
-from empanada.config_loaders import load_train_config, load_inference_config
+from empanada.config_loaders import load_config
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
+
+from empanada.evaluation import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs empanada model inference.')
@@ -117,7 +119,7 @@ if __name__ == "__main__":
     render_model.eval()
 
     # load the volume
-    if '.zarr' in args.volumes_path:
+    if '.zarr' in args.volume_path:
         zarr_store = zarr.open(args.volume_path, mode='r+')
         keys = args.data_key.split(',')
         volume = zarr_store[keys[0]]
@@ -161,7 +163,7 @@ if __name__ == "__main__":
             chunks = [None, None, None]
             chunks[axis] = 1
             stack = zarr_store.create_dataset(
-                f'{config_name}_panoptic_{axis_name}', shape=shape,
+                f'panoptic_{axis_name}', shape=shape,
                 dtype=np.uint64, chunks=tuple(chunks), overwrite=True
             )
         elif args.save_panoptic:
@@ -213,10 +215,11 @@ if __name__ == "__main__":
 
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
+            size = batch['size']
 
             # pads and crops image in the engine
             # upsample output by same factor as downsampled input
-            pan_seg = inference_engine(image, upsampling=args.downsample_f)
+            pan_seg = inference_engine(image, size, upsampling=args.downsample_f)
 
             if pan_seg is None:
                 # building the median queue
@@ -249,7 +252,7 @@ if __name__ == "__main__":
             matcher.target_rle = None
             matcher.assign_new = False
 
-        rev_indices = np.arange(0, stack.shape[axis])[::-1]
+        rev_indices = np.arange(0, shape[axis])[::-1]
         for rev_idx in tqdm(rev_indices):
             rev_idx = rev_idx.item()
             rle_seg = rle_stack[rev_idx]
@@ -328,4 +331,20 @@ if __name__ == "__main__":
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
 
-        #consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
+    
+    # run evaluation
+    consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
+    semantic_metrics = {'IoU': iou}
+    instance_metrics = {'F1_50': f1_50, 'F1_75': f1_75, 'Precision_50': precision_50,
+                        'Precision_75': precision_75, 'Recall_50': recall_50, 'Recall_75': recall_75}
+    panoptic_metrics = {'PQ': panoptic_quality}
+    evaluator = Evaluator(semantic_metrics, instance_metrics, panoptic_metrics)
+
+    for class_name in config['class_names']:
+        gt_json = os.path.join(args.volume_path, f'{class_name}_gt.json')
+        pred_json = os.path.join(args.volume_path, f'{class_name}_pred.json')
+        results = evaluator(gt_json, pred_json)
+        results = {f'{class_name}_{k}': v for k,v in results.items()}
+
+        for k, v in results.items():
+            print(k, v)

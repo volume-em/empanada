@@ -28,7 +28,11 @@ class VolumeDataset(Dataset):
             image = image.compute()
 
         # downsample image by scale
+        h, w = image.shape
         image = resize_by_factor(image, self.scale)
+        assert (image.shape[0] * self.scale) >= h
+        assert (image.shape[1] * self.scale) >= w
+        
         image = self.tfs(image=image)['image']
 
-        return {'index': idx, 'image': image}
+        return {'index': idx, 'image': image, 'size': (h, w)}

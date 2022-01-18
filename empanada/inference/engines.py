@@ -408,7 +408,7 @@ class MultiScaleInferenceEngine:
 
         return final_segs
 
-    def __call__(self, image, upsampling=1):
+    def __call__(self, image, size, upsampling=1):
         assert math.log(upsampling, 2).is_integer(),\
         "Upsampling factor not log base 2!"
 
@@ -417,13 +417,13 @@ class MultiScaleInferenceEngine:
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
-        h, w = image.size()[-2:]
+        h, w = size
         image = factor_pad(image, self.padding_factor)
         image = image.to(self.device, non_blocking=True)
 
         # infer labels
         model_out = self.infer(image)
-        model_out['size'] = (h, w)
+        model_out['size'] = size
 
         # append results to median queue
         self.median_queue.append(model_out)
@@ -448,6 +448,6 @@ class MultiScaleInferenceEngine:
         pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells, upsampling)
 
         # remove padding from the pan_seg
-        pan_seg = pan_seg[..., :(h * upsampling), :(w * upsampling)]
+        pan_seg = pan_seg[..., :h, :w]
 
         return pan_seg
