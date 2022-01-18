@@ -125,10 +125,15 @@ def merge_clusters(G):
                 most_connected_cluster = H.nodes[most_connected]['cluster']
                 if len(H.nodes[neighbor]['cluster']) <= len(most_connected_cluster):
                     push_cluster(H, neighbor, most_connected)
+                    
+                    # push secondary neighbors to most connected node
+                    second_neighbors = list(H.neighbors(neighbor))
+                    for sn in second_neighbors:
+                        if not H.has_edge(most_connected, sn):
+                            edge_iou = H[neighbor][sn]['iou']
+                            H.add_edge(most_connected, neighbor, iou=edge_iou)
+                            
                     H.remove_node(neighbor)
-
-                    # TODO: should most connected node inherit it's
-                    # neighbors neighbors?
                     
         count += 1
         
