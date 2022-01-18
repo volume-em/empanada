@@ -22,7 +22,7 @@ from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects3d
-from empanada.config_loaders import load_train_config, load_inference_config
+from empanada.config_loaders import load_config_with_base
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
 archs = sorted(name for name in models.__dict__
@@ -215,7 +215,7 @@ if __name__ == "__main__":
             matcher.target_rle = None
             matcher.assign_new = False
 
-        rev_indices = np.arange(0, stack.shape[axis])[::-1]
+        rev_indices = np.arange(0, shape[axis])[::-1]
         for rev_idx in tqdm(rev_indices):
             rev_idx = rev_idx.item()
             rle_seg = rle_stack[rev_idx]
