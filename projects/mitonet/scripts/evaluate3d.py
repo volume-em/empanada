@@ -180,7 +180,7 @@ if __name__ == "__main__":
             image = batch['image']
             h, w = image.size()[-2:]
 
-            pan_seg = factor_pad(image, 128)
+            image = factor_pad(image, 128)
             pan_seg = inference_engine(image)
 
             if pan_seg is None:
