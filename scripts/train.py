@@ -1,5 +1,6 @@
 import os
 import time
+import yaml
 import argparse
 import mlflow
 import random
@@ -389,7 +390,12 @@ def prepare_logging(config):
         # log parameters in mlflow
         mlflow.end_run()
         mlflow.set_experiment(config['DATASET']['dataset_name'])
-        mlflow.log_artifact(config['config_file'])
+        
+        # log the full config file after inheritance
+        artifact_path = 'mlruns/' + mlflow.get_artifact_uri().split('/mlruns/')[-1]
+        config_fp = os.path.join(artifact_path, os.path.basename(config['config_file']))
+        with open(config_fp, mode='w') as f:
+            yaml.dump(config, f)
 
         #we don't want to add everything in the config
         #to mlflow parameters, we'll just add the most
@@ -638,6 +644,7 @@ def validate(
             ax[1].imshow(gt, cmap='plasma')
             ax[2].imshow(pred, cmap='plasma')
             plt.savefig(os.path.join(artifact_path, f'{fname}_epoch{epoch}.png'))
+            plt.clf()
             
     # end of epoch print evaluation metrics
     print('\n')

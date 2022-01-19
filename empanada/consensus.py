@@ -136,10 +136,8 @@ def merge_clusters(G):
                     H.remove_node(neighbor)
                     
         count += 1
-        
         if count > 100:
-            print('Clique merging while loop stuck!', H.nodes(data=True), H.edges(data=True))
-            break
+            raise Exception(f'Infinite loop in consensus cluster merging!')
             
     return H
 
