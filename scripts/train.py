@@ -220,52 +220,6 @@ def main_worker(gpu, ngpus_per_node, config):
         #model = torch.jit.script(model, optimize=True)
         model = torch.nn.DataParallel(model).cuda()
         #raise Exception
-        
-    # set criterion
-    if config['gpu'] is not None:
-        criterion = PanopticLoss(**config['TRAIN']['criterion_params']).cuda(config['gpu'])
-    else:
-        criterion = PanopticLoss(**config['TRAIN']['criterion_params']).cuda()
-
-    # set optimizer and lr scheduler
-    opt_name = config['TRAIN']['optimizer']
-    opt_params = config['TRAIN']['optimizer_params']
-    optimizer = configure_optimizer(model, opt_name, **opt_params)
-    
-    schedule_name = config['TRAIN']['lr_schedule']
-    schedule_params = config['TRAIN']['schedule_params']
-    scheduler = lr_scheduler.__dict__[schedule_name](optimizer, **schedule_params)
-
-    scaler = GradScaler() if config['TRAIN']['amp'] else None
-
-    # optionally resume from a checkpoint
-    config['run_id'] = None
-    config['start_epoch'] = 0
-    if config['TRAIN']['resume'] is not None:
-        if os.path.isfile(config['TRAIN']['resume']):
-            print("=> loading checkpoint")
-            if config['gpu'] is None:
-                checkpoint = torch.load(config['TRAIN']['resume'])
-            else:
-                # Map model to be loaded to specified single gpu.
-                loc = 'cuda:{}'.format(config['gpu'])
-                checkpoint = torch.load(config['TRAIN']['resume'], map_location=loc)
-
-            config['start_epoch'] = checkpoint['epoch']
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            scheduler.load_state_dict(checkpoint['scheduler'])
-            if scaler is not None:
-                scaler.load_state_dict(checkpoint['scaler'])
-                
-            # use the saved norms
-            norms = checkpoint['norms']
-            config['run_id'] = checkpoint['run_id']
-
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(config['TRAIN']['resume'], checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found at '{}'".format(config['TRAIN']['resume']))
 
     cudnn.benchmark = True
         
@@ -338,6 +292,60 @@ def main_worker(gpu, ngpus_per_node, config):
         
     else:
         eval_loader = None
+        
+        
+    # set criterion
+    if config['gpu'] is not None:
+        criterion = PanopticLoss(**config['TRAIN']['criterion_params']).cuda(config['gpu'])
+    else:
+        criterion = PanopticLoss(**config['TRAIN']['criterion_params']).cuda()
+
+    # set optimizer and lr scheduler
+    opt_name = config['TRAIN']['optimizer']
+    opt_params = config['TRAIN']['optimizer_params']
+    optimizer = configure_optimizer(model, opt_name, **opt_params)
+    
+    schedule_name = config['TRAIN']['lr_schedule']
+    schedule_params = config['TRAIN']['schedule_params']
+    
+    if 'steps_per_epoch' in schedule_params:
+        n_steps = schedule_params['steps_per_epoch']
+        if n_steps != len(train_loader):
+            schedule_params['steps_per_epoch'] = len(train_loader)
+            print(f'Steps per epoch adjusted from {n_steps} to {len(train_loader)}')
+    
+    scheduler = lr_scheduler.__dict__[schedule_name](optimizer, **schedule_params)
+
+    scaler = GradScaler() if config['TRAIN']['amp'] else None
+
+    # optionally resume from a checkpoint
+    config['run_id'] = None
+    config['start_epoch'] = 0
+    if config['TRAIN']['resume'] is not None:
+        if os.path.isfile(config['TRAIN']['resume']):
+            print("=> loading checkpoint")
+            if config['gpu'] is None:
+                checkpoint = torch.load(config['TRAIN']['resume'])
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = 'cuda:{}'.format(config['gpu'])
+                checkpoint = torch.load(config['TRAIN']['resume'], map_location=loc)
+
+            config['start_epoch'] = checkpoint['epoch']
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
+            if scaler is not None:
+                scaler.load_state_dict(checkpoint['scaler'])
+                
+            # use the saved norms
+            norms = checkpoint['norms']
+            config['run_id'] = checkpoint['run_id']
+
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(config['TRAIN']['resume'], checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(config['TRAIN']['resume']))
 
     # training and evaluation loop
     if 'epochs' in config['TRAIN']['schedule_params']:
@@ -400,6 +408,7 @@ def prepare_logging(config):
         #we don't want to add everything in the config
         #to mlflow parameters, we'll just add the most
         #likely to change parameters
+        mlflow.log_param('run_name', config['TRAIN']['run_name'])
         mlflow.log_param('architecture', config['MODEL']['arch'])
         mlflow.log_param('encoder_pretraining', config['TRAIN']['encoder_pretraining'])
         mlflow.log_param('whole_pretraining', config['TRAIN']['whole_pretraining'])

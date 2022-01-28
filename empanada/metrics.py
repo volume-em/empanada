@@ -171,6 +171,58 @@ class PQ(_BaseMetric):
 
         return np.array(per_class_results)
         
+class F1(_BaseMetric):
+    def __init__(
+        self, 
+        meter, 
+        labels,
+        label_divisor,
+        iou_thr=0.5,
+        **kwargs
+    ):
+        super().__init__(meter)
+        self.labels = labels
+        self.label_divisor = label_divisor
+        self.iou_thr = iou_thr
+        
+    def _to_class_seg(self, pan_seg, label):
+        instance_seg = np.copy(pan_seg) # copy for safety
+        min_id = label * self.label_divisor
+        max_id = min_id + self.label_divisor
+        
+        # zero all objects/semantic segs outside of instance_id range
+        outside_mask = np.logical_or(instance_seg < min_id, instance_seg >= max_id)
+        instance_seg[outside_mask] = 0
+        return instance_seg
+        
+    def calculate(self, output, target):
+        # convert tensors to numpy
+        output = output['pan_seg'].squeeze().long().cpu().numpy()
+        target = target['pan_seg'].squeeze().long().cpu().numpy()
+        
+        # compute the panoptic quality, per class
+        per_class_results = []
+        for label in self.labels:
+            pred_class_seg = self._to_class_seg(output, label)
+            tgt_class_seg = self._to_class_seg(target, label)
+            
+            # match the segmentations
+            matched_labels, all_labels, matched_ious = \
+            fast_matcher(tgt_class_seg, pred_class_seg, iou_thr=self.iou_thr)
+            
+            tp = len(matched_labels[0])
+            fn = len(np.setdiff1d(all_labels[0], matched_labels[0]))
+            fp = len(np.setdiff1d(all_labels[1], matched_labels[1]))
+            
+            if tp + fp + fn == 0:
+                # by convention, F1 is 1 for empty masks
+                per_class_results.append(1.)
+            else:
+                f1 = tp / (tp + 0.5 * fn + 0.5 * fp)
+                per_class_results.append(f1)
+            
+        return np.array(per_class_results)
+
 class ComposeMetrics:
     def __init__(
         self, 

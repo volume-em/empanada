@@ -13,7 +13,7 @@ if __name__ == '__main__':
     
     src_dir = args.src_dir
     imdir = os.path.join(src_dir, 'images')
-    mkdir = os.path.join(src_dir, 'masks')
+    mkdir = os.path.join(src_dir, 'student_masks')
     cfdir = os.path.join(src_dir, 'confs')
     
     assert os.path.isdir(imdir)

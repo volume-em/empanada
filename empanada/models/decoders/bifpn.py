@@ -18,7 +18,8 @@ class TopDownFPN(nn.Module):
     def __init__(
         self,
         pyramid_nins,
-        fpn_dim
+        fpn_dim,
+        depthwise=True
     ):
         super(TopDownFPN, self).__init__()
         
@@ -29,11 +30,16 @@ class TopDownFPN(nn.Module):
             
         # resizing layer
         self.resize_up = Resize2d(2, up_or_down='up')
+        
+        if depthwise:
+            conv_block = separable_conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.SiLU(inplace=True))
+        else:
+            conv_block = conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.ReLU(inplace=True))
             
         # convolution layers after combining feature maps
         self.after_combines = nn.ModuleList()
         for _ in range(len(pyramid_nins)):
-            self.after_combines.append(separable_conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.SiLU(inplace=True)))
+            self.after_combines.append(conv_block)
             
         # fast-fusion weights, plus 1 for non resampled feature map
         self.weights = nn.Parameter(torch.ones(len(pyramid_nins) + 1), requires_grad=True)
@@ -68,7 +74,8 @@ class BottomUpFPN(nn.Module):
     def __init__(
         self,
         pyramid_nins,
-        fpn_dim
+        fpn_dim,
+        depthwise=True
     ):
         super(BottomUpFPN, self).__init__()
         
@@ -79,11 +86,16 @@ class BottomUpFPN(nn.Module):
             
         # resizing layer
         self.resize_down = Resize2d(2, up_or_down='down')
+        
+        if depthwise:
+            conv_block = separable_conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.SiLU(inplace=True))
+        else:
+            conv_block = conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.ReLU(inplace=True))
             
         # convolution layers after combining feature maps
         self.after_combines = nn.ModuleList()
         for _ in range(len(pyramid_nins)):
-            self.after_combines.append(separable_conv_bn_act(fpn_dim, fpn_dim, 3, activation=nn.SiLU(inplace=True)))
+            self.after_combines.append(conv_block)
             
         # fast-fusion weights
         self.weights = nn.Parameter(torch.ones(len(pyramid_nins) + 1), requires_grad=True)
@@ -127,11 +139,12 @@ class BiFPNLayer(nn.Module):
     def __init__(
         self,
         pyramid_nins, 
-        fpn_dim
+        fpn_dim,
+        depthwise=True
     ):
         super(BiFPNLayer, self).__init__()
-        self.top_down_fpn = TopDownFPN(pyramid_nins[::-1][1:], fpn_dim)
-        self.bottom_up_fpn = BottomUpFPN(pyramid_nins[1:], fpn_dim)
+        self.top_down_fpn = TopDownFPN(pyramid_nins[::-1][1:], fpn_dim, depthwise=depthwise)
+        self.bottom_up_fpn = BottomUpFPN(pyramid_nins[1:], fpn_dim, depthwise=depthwise)
         
     def forward(self, pyramid_features: List[torch.Tensor]):
         # order features from smallest to largest
@@ -149,7 +162,8 @@ class BiFPN(nn.Module):
         self,
         pyramid_nins,
         fpn_dim,
-        num_layers=3
+        num_layers=3,
+        depthwise=True
     ):
         super(BiFPN, self).__init__()
         
@@ -162,9 +176,9 @@ class BiFPN(nn.Module):
         self.bifpns = nn.ModuleList()
         for i in range(num_layers):
             if i == 0:
-                bifpn = BiFPNLayer(pyramid_nins, fpn_dim)
+                bifpn = BiFPNLayer(pyramid_nins, fpn_dim, depthwise=depthwise)
             else:
-                bifpn = BiFPNLayer(len(pyramid_nins) * [fpn_dim], fpn_dim)
+                bifpn = BiFPNLayer(len(pyramid_nins) * [fpn_dim], fpn_dim, depthwise=depthwise)
             
             self.bifpns.append(bifpn)
                 

@@ -30,6 +30,7 @@ class _BaseModel(nn.Module):
         ins_decoder=False,
         confidence_head=False,
         confidence_bins=5,
+        depthwise=True,
         **kwargs
     ):
         super(_BaseModel, self).__init__()
@@ -49,13 +50,13 @@ class _BaseModel(nn.Module):
         else:
             widths = self.encoder.cfg.widths[1:]
             
-        self.semantic_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers)
+        self.semantic_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers, depthwise=depthwise)
         self.semantic_decoder = BiFPNDecoder(fpn_dim)
         
         # separate BiFPN for instance-level predictions
         # following PanopticDeepLab
         if ins_decoder:
-            self.instance_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers)
+            self.instance_fpn = BiFPN(deepcopy(widths), fpn_dim, fpn_layers, depthwise=depthwise)
             self.instance_decoder = BiFPNDecoder(fpn_dim)
         else:
             self.instance_fpn = None

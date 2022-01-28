@@ -45,6 +45,12 @@ class PanopticDeepLab(nn.Module):
         self.num_classes = num_classes
         self.encoder = encoders.__dict__[encoder](output_stride=stage4_stride)
         
+        if not isinstance(aspp_dropout, float):
+            assert len(aspp_dropout) == 2
+            sem_p, ins_p = aspp_dropout
+        else:
+            sem_p = ins_p = aspp_dropout
+        
         self.semantic_decoder = PanopticDeepLabDecoder(
             int(self.encoder.cfg.widths[-1]),
             decoder_channels,
@@ -53,7 +59,7 @@ class PanopticDeepLab(nn.Module):
             low_level_channels_project,
             atrous_rates, 
             aspp_channels,
-            aspp_dropout
+            sem_p
         )
         
         if ins_decoder:
@@ -65,7 +71,7 @@ class PanopticDeepLab(nn.Module):
                 [int(s * ins_ratio) for s in low_level_channels_project],
                 atrous_rates, 
                 aspp_channels,
-                aspp_dropout
+                ins_p
             )
         else:
             self.instance_decoder = None

@@ -1,5 +1,5 @@
 DATASET:
-  dataset_name: "MitoMegaMix"
+  dataset_name: "Baselines"
   class_names: [ "mito" ]
   labels: [ 1 ]
   thing_list: [ 1 ]
@@ -31,6 +31,7 @@ MODEL:
   subdivision_num_points: 8192
 
 TRAIN:
+  run_name: "Panoptic DeepLab Baseline"
   # image and model directories
   train_dir: "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
   additional_train_dirs:
@@ -44,15 +45,16 @@ TRAIN:
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5b/train"
 
-  model_dir: "/data/IASEM/conradrw/models/MMM_Panoptic_DeepLab_PointRend"
+  model_dir: "/data/IASEM/conradrw/models/Baselines"
   save_freq: 1
 
   # path to .pth file for resuming training
   resume: null
 
   # pretraining parameters
-  encoder_pretraining: "/data/IASEM/conradrw/models/pretrained_models/cem1.5m_swav_resnet50_200ep.pth.tar"
+  encoder_pretraining: "/data/IASEM/conradrw/models/pretrained_models/cem1.5m_swav_resnet50_200ep_balanced.pth.tar"
   whole_pretraining: null
   finetune_layer: "all"
 
@@ -60,8 +62,8 @@ TRAIN:
   lr_schedule: "OneCycleLR"
   schedule_params:
     max_lr: 0.003
-    epochs: 50
-    steps_per_epoch: 331
+    epochs: 30
+    steps_per_epoch: 339
     pct_start: 0.3
 
   # setup the optimizer
@@ -117,11 +119,12 @@ EVAL:
   epochs_per_eval: 1
 
   # parameters needed for eval_metrics
-  metrics: [ "IoU", "PQ" ]
+  metrics: [ "IoU", "PQ", "F1" ]
   metric_params:
       topk: 1
       labels: [ 1 ]
       label_divisor: 1000
+      iou_thr: 0.5
 
   # parameters needed for inference
   engine_params:
