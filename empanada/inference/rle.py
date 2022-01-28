@@ -12,6 +12,7 @@ def pan_seg_to_rle_seg(
     pan_seg,
     labels,
     label_divisor,
+    thing_list,
     force_connected=True
 ):
     # convert from dense panoptic seg to sparse rle segment class
@@ -27,7 +28,7 @@ def pan_seg_to_rle_seg(
         instance_seg[outside_mask] = 0
 
         # relabel connected components
-        if force_connected:
+        if force_connected and label in thing_list:
             instance_seg = measure.label(instance_seg).astype(instance_seg.dtype)
             instance_seg[instance_seg > 0] += min_id
 

@@ -191,7 +191,7 @@ if __name__ == "__main__":
                 pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding and unit dimensions
 
                 # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
+                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, thing_list, force_connected=True)
                 queue.put(rle_seg)
 
         final_segs = inference_engine.end()
@@ -200,7 +200,7 @@ if __name__ == "__main__":
                 pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding
 
                 # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, force_connected=True)
+                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, thing_list, force_connected=True)
                 queue.put(rle_seg)
 
         # finish and close forward matching process

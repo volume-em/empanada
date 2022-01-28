@@ -229,7 +229,7 @@ if __name__ == "__main__":
                 pan_seg = pan_seg.squeeze().cpu().numpy() # remove padding and unit dimensions
 
                 # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, force_connected=True)
+                rle_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, thing_list, force_connected=True)
                 queue.put(rle_seg)
 
         final_segs = inference_engine.empty_queue()
@@ -238,7 +238,7 @@ if __name__ == "__main__":
                 pan_seg = pan_seg.squeeze().cpu().numpy() # remove padding
 
                 # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, force_connected=True)
+                rle_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, thing_list, force_connected=True)
                 queue.put(rle_seg)
 
         # finish and close forward matching process
@@ -331,7 +331,7 @@ if __name__ == "__main__":
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
 
-    
+
     # run evaluation
     consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
     semantic_metrics = {'IoU': iou}
