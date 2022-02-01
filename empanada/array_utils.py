@@ -358,8 +358,12 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b):
     changes = merged_ids[:-1] != merged_ids[1:]
 
     # calculate intersection and divide by union
+    #print(runs_a.sum(), runs_b.sum())
+    #print(starts_a.min(), starts_b.min(), starts_a.max(), starts_b.max())
     intersection = intersection_from_ranges(merged_runs, changes)
     union = runs_a.sum() + runs_b.sum() - intersection
+    
+    #print(intersection, union)
 
     return intersection / union
 
@@ -479,13 +483,15 @@ def join_ranges(ranges):
 
     return joined
 
-def merge_rles(starts_a, runs_a, starts_b, runs_b):
+def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
     # convert from runs to ranges
-    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
-    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-
-    # merge range
-    merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
+    if starts_b is not None and runs_b is not None:
+        ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+        ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
+        merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
+    else:
+        merged_ranges = np.stack([starts_a, starts_a + runs_a], axis=1)
+    
     sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
     merged_ranges = merged_ranges[sort_indices]
 

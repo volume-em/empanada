@@ -7,4 +7,4 @@ engine_params:
 # simple object size/shape filters
 filters:
   - { name: "remove_small_objects", min_size: 500 }
-  - { name: "remove_pancakes", min_span: 4 }
+  - { name: "remove_pancakes", min_span: 8 }

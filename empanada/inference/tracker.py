@@ -40,20 +40,6 @@ def to_coords3d(index2d, coords, axis):
 
     return coords3d
 
-def to_starts3d(index2d, starts, axis, shape2d):
-    assert axis in ['xy', 'xz', 'yz']
-    
-    hcoords, wcoords = tuple(coords.T)
-    dcoords = np.repeat([index2d], len(hcoords))
-    if axis == 'xy':
-        coords3d = (dcoords, hcoords, wcoords)
-    elif axis == 'xz':
-        coords3d = (hcoords, dcoords, wcoords)
-    else:
-        coords3d = (hcoords, wcoords, dcoords)
-
-    return coords3d
-
 class InstanceTracker:
     def __init__(
         self,
@@ -137,8 +123,6 @@ class InstanceTracker:
                 # they've already been concatenated
                 continue
                 
-            
-            
         self.finished = True
                 
     def write_to_json(self, savepath):

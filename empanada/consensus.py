@@ -6,9 +6,6 @@ from empanada.array_utils import *
 from tqdm import tqdm
 
 def average_cluster_ious(G, cluster1, cluster2):
-    """
-    
-    """
     all_ious = []
 
     # loop over all nodes in the two clusters
@@ -141,7 +138,12 @@ def merge_clusters(G):
             
     return H
 
-def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
+def merge_objects3d(
+    object_trackers, 
+    vote_thr=0.5, 
+    cluster_iou_thr=0.75,
+    min_iou=0.1
+):
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
     vote_thr_count = math.ceil(n_votes * vote_thr)
@@ -218,7 +220,7 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
             continue
         
         sg = graph.subgraph(comp)
-        cluster_graph = create_graph_of_clusters(sg, 0.75)
+        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou)
         cluster_graph = merge_clusters(cluster_graph)
                 
         for node in cluster_graph.nodes:
@@ -238,15 +240,17 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
                 np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1) 
                 for node_id in cluster
             ])
+            
             sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
             all_ranges = all_ranges[sort_idx]
             voted_ranges = np.array(rle_voting(all_ranges, vote_thr_count))
             
-            instances[instance_id] = {}
-            instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
-            
-            instances[instance_id]['starts'] = voted_ranges[:, 0]
-            instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
-            instance_id += 1
+            if len(voted_ranges) > 0:
+                instances[instance_id] = {}
+                instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+
+                instances[instance_id]['starts'] = voted_ranges[:, 0]
+                instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+                instance_id += 1
             
     return instances

@@ -112,7 +112,7 @@ if __name__ == "__main__":
             del state_dict[k]
 
     msg = model.load_state_dict(state['state_dict'], strict=True)
-    model.to('cuda:0') # move model to GPU 0
+    model.to('cuda' if torch.cuda.device_count() > 0 else 'cpu') # move model to GPU 0
 
     # set the evaluation transforms
     norms = state['norms']
@@ -247,6 +247,10 @@ if __name__ == "__main__":
             for filt,kwargs in zip(filter_names, filter_kwargs):
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
+                    
+    #import pickle
+    #with open('./celegans_trackers.pkl', mode='wb') as handle:
+    #    pickle.dump(trackers, handle)
 
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
