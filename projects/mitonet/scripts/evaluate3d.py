@@ -269,7 +269,7 @@ if __name__ == "__main__":
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
 
             # fill with the consensus instances
-            consensus_tracker.instances = merge_objects3d(class_trackers)
+            consensus_tracker.instances = merge_objects3d(class_trackers, **config['INFERENCE']['consensus_params'])
 
             # apply filters to final merged segmentation
             if filter_names:

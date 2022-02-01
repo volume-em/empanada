@@ -17,52 +17,6 @@ def _merge_encodings_for_semantic(pred_encodings):
 
     return rles
 
-"""
-def rle_matcher(
-    gt_labels,
-    gt_boxes, 
-    gt_encodings,
-    pred_labels,
-    pred_boxes, 
-    pred_encodings,
-    return_iou_matrix=True
-):
-    if len(pred_labels) == 0:
-        empty = np.array([])
-        if return_iou_matrix:
-            return 4 * (empty,) 
-        else:
-            return 3 * (empty,) 
-    
-    # screen matches by bounding box iou
-    box_matches = np.array(box_iou(gt_boxes, pred_boxes).nonzero()).T
-    
-    # compute mask IoUs of all possible matches
-    iou_matrix = np.zeros((len(gt_boxes), len(pred_boxes)), dtype='float')
-    gt_matched = []
-    pred_matched = []
-    for r1, r2 in zip(*tuple(box_matches.T)):
-        # TODO: convert from string to rle before entering this function
-        r1_starts, r1_runs = string_to_rle(gt_encodings[r1])
-        r2_starts, r2_runs = string_to_rle(pred_encodings[r2])
-        pair_iou = rle_iou(r1_starts, r1_runs, r2_starts, r2_runs)
-        
-        iou_matrix[r1, r2] = pair_iou
-        if pair_iou > 0.5:
-            gt_matched.append(r1)
-            pred_matched.append(r2)
-            
-    matched_ious = iou_matrix[gt_matched, pred_matched]
-    gt_matched = gt_labels[gt_matched]
-    pred_matched = pred_labels[pred_matched]
-            
-    if return_iou_matrix:
-        return gt_matched, pred_matched, matched_ious, iou_matrix
-    else:
-        return gt_matched, pred_matched, matched_ious
-    
-"""
-
 class Evaluator:
     def __init__(
         self,

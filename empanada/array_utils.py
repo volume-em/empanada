@@ -358,13 +358,9 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b):
     changes = merged_ids[:-1] != merged_ids[1:]
 
     # calculate intersection and divide by union
-    #print(runs_a.sum(), runs_b.sum())
-    #print(starts_a.min(), starts_b.min(), starts_a.max(), starts_b.max())
     intersection = intersection_from_ranges(merged_runs, changes)
     union = runs_a.sum() + runs_b.sum() - intersection
     
-    #print(intersection, union)
-
     return intersection / union
 
 @numba.jit(nopython=True)

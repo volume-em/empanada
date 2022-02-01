@@ -23,6 +23,10 @@ matcher_params:
   merge_iou_thr: 0.25
   merge_ioa_thr: 0.25
   force_connected: True
+  
+consensus_params:
+  vote_thr: 0.5
+  cluster_iou_thr: 0.75
 
 # simple object size/shape filters
 filters:
