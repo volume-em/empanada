@@ -204,7 +204,8 @@ def merge_objects3d(
     object_trackers, 
     vote_thr=0.5, 
     cluster_iou_thr=0.75,
-    min_overlap_area=100
+    min_overlap_area=100,
+    min_iou=0.1
 ):
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
@@ -266,7 +267,7 @@ def merge_objects3d(
             return_intersection=True
         )
         
-        if inter_area > min_overlap_area:
+        if inter_area > min_overlap_area or pair_iou >= min_iou:
             graph.add_edge(r1, r2, iou=pair_iou)
             
     instance_id = 1
