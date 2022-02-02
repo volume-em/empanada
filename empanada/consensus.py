@@ -203,7 +203,8 @@ def merge_clusters(G):
 def merge_objects3d(
     object_trackers, 
     vote_thr=0.5, 
-    cluster_iou_thr=0.75
+    cluster_iou_thr=0.75,
+    min_overlap_area=100
 ):
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
@@ -259,12 +260,13 @@ def merge_objects3d(
         
     # iou as weighted edges
     for r1, r2 in zip(*tuple(box_matches.T)):
-        pair_iou = rle_iou(
+        pair_iou, inter_area = rle_iou(
             graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
-            graph.nodes[r2]['starts'], graph.nodes[r2]['runs']
+            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+            return_intersection=True
         )
         
-        if pair_iou > 1e-5:
+        if inter_area > min_overlap_area:
             graph.add_edge(r1, r2, iou=pair_iou)
             
     instance_id = 1

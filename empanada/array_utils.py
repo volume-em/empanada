@@ -340,7 +340,7 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b):
 
     return intersection / area
 
-def rle_iou(starts_a, runs_a, starts_b, runs_b):
+def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     # convert from runs to ends
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
@@ -361,7 +361,10 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b):
     intersection = intersection_from_ranges(merged_runs, changes)
     union = runs_a.sum() + runs_b.sum() - intersection
     
-    return intersection / union
+    if return_intersection:
+        return intersection / union, intersection
+    else:
+        return intersection / union
 
 @numba.jit(nopython=True)
 def split_range_by_votes(running_range, num_votes, vote_thr=2):
