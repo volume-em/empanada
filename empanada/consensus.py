@@ -22,7 +22,7 @@ def average_cluster_ious(G, cluster1, cluster2):
     # overlap with each other across clusters
     return sum(all_ious) / len(all_ious)
 
-def create_graph_of_clusters(G, iou_threshold):
+def create_graph_of_clusters(G, iou_threshold, min_cluster_iou):
     drop_edges = []
     for (u, v, d) in G.edges(data=True):
         if d['iou'] < iou_threshold:
@@ -48,7 +48,7 @@ def create_graph_of_clusters(G, iou_threshold):
 
             # only add an edge when clusters have average IoU
             # over a small threshold value
-            if cluster_iou >= 1e-5:
+            if cluster_iou >= min_cluster_iou:
                 cluster_graph.add_edge(node1, node2, iou=cluster_iou)
             
     return cluster_graph
@@ -62,7 +62,6 @@ def push_cluster(G, src, dst):
     
     return G
 
-"""
 def merge_clusters(G):
     # copy to avoid inplace changes
     H = G.copy()
@@ -73,73 +72,6 @@ def merge_clusters(G):
     # instances
     while len(H.edges()) > 0:
         # most connected from sorted nodes by the number of neighbors
-        most_connected = sorted(
-            H.nodes, key=lambda x: len(list(H.neighbors(x))), reverse=True
-        )[0]
-        
-        # get neighbors of the most connected node
-        neighbors = list(H.neighbors(most_connected))
-        
-        # sort neighbors by the size of their clusters
-        neighbors = sorted(
-            neighbors, key=lambda x: len(H.nodes[x]['cluster']), reverse=True
-        )
-        
-        # decide whether to push the most connected cluster to
-        # merge with its neighbors or to merge all the neighbors
-        # into the most connected cluster
-        most_connected_cluster = H.nodes[most_connected]['cluster']
-        push_most_connected = False
-        for neighbor in neighbors:
-            # if neighbor has a bigger cluster than
-            # the most connected cluster will be absorbed
-            # by each of its neighbors
-            if len(H.nodes[neighbor]['cluster']) > len(most_connected_cluster):
-                push_cluster(H, most_connected, neighbor)
-                push_most_connected = True
-            elif push_most_connected:
-                push_cluster(H, most_connected, neighbor)
-            else:
-                break
-                
-        if push_most_connected:
-            # most connected cluster is rejected as an instance
-            H.remove_node(most_connected)
-        else:
-            # most connected cluster is accepted as an instance
-            # pull all the neighboring clusters 
-            neighbors = list(H.neighbors(most_connected))
-            neighbors = sorted(
-                neighbors, key=lambda x: len(H.nodes[x]['cluster'])
-            )
-            # push from neighbors with smaller or equal clusters
-            for neighbor in neighbors:
-                most_connected_cluster = H.nodes[most_connected]['cluster']
-                if len(H.nodes[neighbor]['cluster']) <= len(most_connected_cluster):
-                    push_cluster(H, neighbor, most_connected)
-                    
-                    # push secondary neighbors to most connected node
-                    second_neighbors = list(H.neighbors(neighbor))
-                    for sn in second_neighbors:
-                        if not H.has_edge(most_connected, sn):
-                            edge_iou = H[neighbor][sn]['iou']
-                            H.add_edge(most_connected, neighbor, iou=edge_iou)
-                            
-                    H.remove_node(neighbor)
-                    
-        count += 1
-        if count > 100:
-            raise Exception(f'Infinite loop in consensus cluster merging!')
-            
-    return H
-"""
-
-def merge_clusters(G):
-    H = G.copy()
-
-    count = 0
-    while len(H.edges()) > 0:
-        # most connected from nodes sorted by the number of neighbors
         most_connected = sorted(
             H.nodes, key=lambda x: len(list(H.neighbors(x))), reverse=True
         )[0]
@@ -267,7 +199,7 @@ def merge_objects3d(
             return_intersection=True
         )
         
-        if inter_area > min_overlap_area or pair_iou >= min_iou:
+        if pair_iou > min_iou:
             graph.add_edge(r1, r2, iou=pair_iou)
             
     instance_id = 1
@@ -280,7 +212,7 @@ def merge_objects3d(
             continue
         
         sg = graph.subgraph(comp)
-        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr)
+        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou)
         cluster_graph = merge_clusters(cluster_graph)
                 
         for node in cluster_graph.nodes:
@@ -305,12 +237,12 @@ def merge_objects3d(
             all_ranges = all_ranges[sort_idx]
             voted_ranges = np.array(rle_voting(all_ranges, vote_thr_count))
             
-            if len(voted_ranges) > 0:
-                instances[instance_id] = {}
-                instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+            #if len(voted_ranges) > 0:
+            instances[instance_id] = {}
+            instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
 
-                instances[instance_id]['starts'] = voted_ranges[:, 0]
-                instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
-                instance_id += 1
+            instances[instance_id]['starts'] = voted_ranges[:, 0]
+            instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+            instance_id += 1
             
     return instances
