@@ -22,7 +22,21 @@ def average_cluster_ious(G, cluster1, cluster2):
     # overlap with each other across clusters
     return sum(all_ious) / len(all_ious)
 
-def create_graph_of_clusters(G, iou_threshold, min_cluster_iou):
+def average_cluster_overlaps(G, cluster1, cluster2):
+    all_overlaps = []
+
+    # loop over all nodes in the two clusters
+    # to get pairwise IoU scores
+    for node1 in cluster1:
+        for node2 in cluster2:
+            if G.has_edge(node1, node2):
+                all_overlaps.append(G[node1][node2]['overlap'])
+            else:
+                all_overlaps.append(0.)
+            
+    return sum(all_overlaps) / len(all_overlaps)
+
+def create_graph_of_clusters(G, iou_threshold, min_cluster_iou, min_overlap_area):
     drop_edges = []
     for (u, v, d) in G.edges(data=True):
         if d['iou'] < iou_threshold:
@@ -45,10 +59,11 @@ def create_graph_of_clusters(G, iou_threshold, min_cluster_iou):
             cluster1 = cluster_graph.nodes[node1]['cluster']
             cluster2 = cluster_graph.nodes[node2]['cluster']
             cluster_iou = average_cluster_ious(G, cluster1, cluster2)
+            cluster_overlap = average_cluster_overlaps(G, cluster1, cluster2)
 
             # only add an edge when clusters have average IoU
             # over a small threshold value
-            if cluster_iou >= min_cluster_iou:
+            if cluster_iou >= min_cluster_iou or cluster_overlap >= min_overlap_area:
                 cluster_graph.add_edge(node1, node2, iou=cluster_iou)
             
     return cluster_graph
@@ -199,8 +214,8 @@ def merge_objects3d(
             return_intersection=True
         )
         
-        if pair_iou > min_iou:
-            graph.add_edge(r1, r2, iou=pair_iou)
+        if pair_iou > min_iou or inter_area > min_overlap_area:
+            graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
             
     instance_id = 1
     instances = {}
@@ -212,7 +227,7 @@ def merge_objects3d(
             continue
         
         sg = graph.subgraph(comp)
-        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou)
+        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou, min_overlap_area)
         cluster_graph = merge_clusters(cluster_graph)
                 
         for node in cluster_graph.nodes:
