@@ -154,6 +154,7 @@ def merge_objects3d(
     min_overlap_area=100,
     min_iou=0.1
 ):
+    print(vote_thr, min_overlap_area, min_iou)
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
     vote_thr_count = math.ceil(n_votes * vote_thr)
@@ -207,28 +208,105 @@ def merge_objects3d(
         )
         
     # iou as weighted edges
-    for r1, r2 in zip(*tuple(box_matches.T)):
-        pair_iou, inter_area = rle_iou(
-            graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
-            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
-            return_intersection=True
-        )
-        
-        if pair_iou > min_iou or inter_area > min_overlap_area:
+    #for r1, r2 in zip(*tuple(box_matches.T)):
+    for i,r1 in enumerate(graph.nodes):
+        for r2 in list(graph.nodes)[i+1:]:
+            pair_iou, inter_area = rle_iou(
+                graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
+                graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+                return_intersection=True
+            )
+
+            #if pair_iou > min_iou or inter_area > min_overlap_area:
             graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
             
     instance_id = 1
     instances = {}
     # components are groups of objects that
     # are all connected by each other
+    new_graph = nx.Graph()
     for comp in nx.connected_components(graph):
         comp = list(comp)
+        print('Comp before', comp)
         if len(comp) < vote_thr_count:
             continue
         
         sg = graph.subgraph(comp)
         cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou, min_overlap_area)
         cluster_graph = merge_clusters(cluster_graph)
+        
+        print('Nodes', cluster_graph.nodes)
+                
+        for node in cluster_graph.nodes:
+            cluster = list(cluster_graph.nodes[node]['cluster'])
+                
+            if len(cluster) < vote_thr_count:
+                continue
+                
+            # merge boxes and coords from nodes
+            node0 = cluster[0]
+            merged_box = graph.nodes[node0]['box']
+            for node_id in cluster[1:]:
+                merged_box = merge_boxes(merged_box, graph.nodes[node_id]['box'])
+            
+            # vote on indices that should belong to an object
+            all_ranges = np.concatenate([
+                np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1) 
+                for node_id in cluster
+            ])
+            
+            sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
+            all_ranges = all_ranges[sort_idx]
+            voted_ranges = np.array(rle_voting(all_ranges, vote_thr_count))
+            
+            #if len(voted_ranges) > 0:
+            instances[instance_id] = {}
+            instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+
+            instances[instance_id]['starts'] = voted_ranges[:, 0]
+            instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+            
+            new_graph.add_node(
+                instance_id, box=instances[instance_id]['box'], 
+                starts=instances[instance_id]['starts'],
+                runs=instances[instance_id]['runs']
+            )
+            
+            instance_id += 1
+    
+    """
+    graph = new_graph
+            
+    # iou as weighted edges
+    for i,r1 in enumerate(graph.nodes):
+        for r2 in list(graph.nodes)[i+1:]:
+            pair_iou, inter_area = rle_iou(
+                graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
+                graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+                return_intersection=True
+            )
+            print('Post', r1, r2, pair_iou, inter_area)
+
+
+            if pair_iou > min_iou or inter_area > min_overlap_area:
+                graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
+            
+    instance_id = 1
+    instances = {}
+    # components are groups of objects that
+    # are all connected by each other
+    new_graph = nx.Graph()
+    for comp in nx.connected_components(graph):
+        comp = list(comp)
+        print('Comp before', comp)
+        if len(comp) < vote_thr_count:
+            continue
+        
+        sg = graph.subgraph(comp)
+        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_iou, min_overlap_area)
+        cluster_graph = merge_clusters(cluster_graph)
+        
+        print('Nodes', cluster_graph.nodes)
                 
         for node in cluster_graph.nodes:
             cluster = list(cluster_graph.nodes[node]['cluster'])
@@ -259,5 +337,12 @@ def merge_objects3d(
             instances[instance_id]['starts'] = voted_ranges[:, 0]
             instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
             instance_id += 1
+            
+            new_graph.add_node(
+                node_id, box=instances[instance_id]['box'], 
+                starts=instances[instance_id]['starts'],
+                runs=instances[instance_id]['runs']
+            )
+    """
             
     return instances

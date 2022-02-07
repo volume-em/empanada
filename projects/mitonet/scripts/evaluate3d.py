@@ -249,8 +249,10 @@ if __name__ == "__main__":
                     filters.__dict__[filt](tracker, **kwargs)
                     
     import pickle
-    with open('./gastroc_trackers.pkl', mode='wb') as handle:
+    with open('./merge_error_trackers.pkl', mode='wb') as handle:
         pickle.dump(trackers, handle)
+        
+    raise Exception
 
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
