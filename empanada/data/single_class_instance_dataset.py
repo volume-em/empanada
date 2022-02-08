@@ -7,7 +7,7 @@ from skimage import io
 from skimage import measure
 
 from empanada.data._base import _BaseDataset
-from empanada.data.utils import heatmap_and_offsets, copy_paste_class
+from empanada.data.utils import heatmap_and_offsets
 
 __all__ = [
     'SingleClassInstanceDataset'
@@ -40,7 +40,8 @@ class SingleClassInstanceDataset(_BaseDataset):
             output = self.transforms(image=image, mask=mask)
         else:
             output = {'image': image, 'mask': mask}
-
+        
+        mask = output['mask']
         heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
         output['ctr_hmp'] = heatmap
         output['offsets'] = offsets

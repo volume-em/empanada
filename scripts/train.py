@@ -245,7 +245,7 @@ def main_worker(gpu, ngpus_per_node, config):
         *dataset_augs,
         A.Normalize(**norms),
         ToTensorV2()
-    ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
+    ])
     
     # create training dataset and loader
     train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
@@ -278,7 +278,7 @@ def main_worker(gpu, ngpus_per_node, config):
             FactorPad(128), # pad image to be divisible by 128
             A.Normalize(**norms),
             ToTensorV2()
-        ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
+        ])
         eval_dataset = data_cls(config['EVAL']['eval_dir'], eval_tfs)
         # evaluation runs on a single gpu
         eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False, 
@@ -292,7 +292,6 @@ def main_worker(gpu, ngpus_per_node, config):
         
     else:
         eval_loader = None
-        
         
     # set criterion
     if config['gpu'] is not None:
