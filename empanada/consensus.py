@@ -6,9 +6,6 @@ from empanada.array_utils import *
 from tqdm import tqdm
 
 def average_cluster_ious(G, cluster1, cluster2):
-    """
-    
-    """
     all_ious = []
 
     # loop over all nodes in the two clusters
@@ -25,9 +22,21 @@ def average_cluster_ious(G, cluster1, cluster2):
     # overlap with each other across clusters
     return sum(all_ious) / len(all_ious)
 
-def create_graph_of_clusters(G, iou_threshold, min_cluster_iou=0.1):
-    # get a list of edges to drop from the graph
-    # because IoUs are below the threshold
+def average_cluster_overlaps(G, cluster1, cluster2):
+    all_overlaps = []
+
+    # loop over all nodes in the two clusters
+    # to get pairwise IoU scores
+    for node1 in cluster1:
+        for node2 in cluster2:
+            if G.has_edge(node1, node2):
+                all_overlaps.append(G[node1][node2]['overlap'])
+            else:
+                all_overlaps.append(0.)
+            
+    return sum(all_overlaps) / len(all_overlaps)
+
+def create_graph_of_clusters(G, iou_threshold, min_cluster_iou, min_overlap_area):
     drop_edges = []
     for (u, v, d) in G.edges(data=True):
         if d['iou'] < iou_threshold:
@@ -38,26 +47,23 @@ def create_graph_of_clusters(G, iou_threshold, min_cluster_iou=0.1):
     for edge in drop_edges:
         H.remove_edge(*edge)
         
-    # make each connected component (i.e. cluster)
-    # in H a node in a new graph
     cluster_graph = nx.Graph()
     for i,cluster in enumerate(nx.connected_components(H)):
         cluster_graph.add_node(i, cluster=cluster)
         
-    # edge weights are average IoUs between pairs within
-    # separate clusters
+    # edge weights are average IoUs between all pairs
+    # of objects across separate clusters
     cluster_nodes = list(cluster_graph.nodes)
     for i,node1 in enumerate(cluster_nodes):
         for j,node2 in enumerate(cluster_nodes[i+1:]):
-            # measure average ious between all instances within
-            # withing two separate clusters
             cluster1 = cluster_graph.nodes[node1]['cluster']
             cluster2 = cluster_graph.nodes[node2]['cluster']
             cluster_iou = average_cluster_ious(G, cluster1, cluster2)
-
+            cluster_overlap = average_cluster_overlaps(G, cluster1, cluster2)
+            
             # only add an edge when clusters have average IoU
             # over a small threshold value
-            if cluster_iou >= min_cluster_iou:
+            if cluster_iou >= min_cluster_iou or cluster_overlap >= min_overlap_area:
                 cluster_graph.add_edge(node1, node2, iou=cluster_iou)
             
     return cluster_graph
@@ -141,10 +147,26 @@ def merge_clusters(G):
             
     return H
 
-def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
+def merge_objects3d(
+    object_trackers, 
+    pixel_vote_thr=0.5, 
+    cluster_iou_thr=0.75,
+    min_overlap_area=100,
+    min_iou=0.1
+):
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
-    vote_thr_count = math.ceil(n_votes * vote_thr)
+    pixel_vote_thr_count = math.ceil(n_votes * pixel_vote_thr)
+    
+    # always need to be majority to avoid overlapping
+    # objects in the final segmentation
+    min_cluster_size = (n_votes // 2) + 1
+    
+    # if pixel vote thr is less than 0.5
+    # then we have to overmerge clusters
+    # or segments might overlap
+    min_cluster_iou = min_iou if pixel_vote_thr_count >= min_cluster_size else 0
+    min_cluster_overlap_area = min_overlap_area if pixel_vote_thr_count >= min_cluster_size else 0
     
     # unpack the instances from each tracker
     # into arrays for labels, bounding boxes
@@ -168,13 +190,15 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
     object_boxes = np.array(object_boxes)
     
     # compute pairwise overlaps for all instance boxes
-    # TODO: replace pairwise iou calculation with something
+    # TODO: replace pairwise intersection calculation with something
     # more memory efficient (only matters when N is large)
-    box_ious = box_iou(object_boxes)
-    #box_matches = np.array(box_ious.nonzero()).T
+    box_ious, box_intersections = box_iou(object_boxes, return_intersection=True)
     box_matches = np.array(
-        np.where(box_ious > 0.01)
+        np.where(np.logical_or(box_intersections > 100, box_ious > 0.01))
     ).T
+    #box_matches = np.array(
+    #    np.where(box_ious > 0.01)
+    #).T
     
     # filter out boxes from the same tracker
     r1_match_tr = tracker_indices[box_matches[:, 0]]
@@ -195,36 +219,35 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
             runs=object_runs[node_id]
         )
         
-    # iou to weighted edges
-    for r1, r2 in tqdm(zip(*tuple(box_matches.T)), total=len(box_matches)):
-        pair_iou = rle_iou(
+    # iou as weighted edges
+    for r1, r2 in zip(*tuple(box_matches.T)):
+        pair_iou, inter_area = rle_iou(
             graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
-            graph.nodes[r2]['starts'], graph.nodes[r2]['runs']
+            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+            return_intersection=True
         )
         
-        if pair_iou > min_iou:
-            graph.add_edge(r1, r2, iou=pair_iou)
+        if pair_iou > min_iou or inter_area > min_overlap_area:
+            graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
             
-            
-    # generate connected components that
-    # correspond to single instances
     instance_id = 1
     instances = {}
+    # components are groups of objects that
+    # are all connected by each other
+    new_graph = nx.Graph()
     for comp in nx.connected_components(graph):
-        # add instances over vote thr
         comp = list(comp)
-        
-        if len(comp) < vote_thr_count:
+        if len(comp) < min_cluster_size:
             continue
-        
+            
         sg = graph.subgraph(comp)
-        cluster_graph = create_graph_of_clusters(sg, 0.75)
+        cluster_graph = create_graph_of_clusters(sg, cluster_iou_thr, min_cluster_iou, min_cluster_overlap_area)
         cluster_graph = merge_clusters(cluster_graph)
                 
         for node in cluster_graph.nodes:
             cluster = list(cluster_graph.nodes[node]['cluster'])
                 
-            if len(cluster) < vote_thr_count:
+            if len(cluster) < min_cluster_size:
                 continue
                 
             # merge boxes and coords from nodes
@@ -238,15 +261,18 @@ def merge_objects3d(object_trackers, vote_thr=0.5, min_iou=0.1):
                 np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1) 
                 for node_id in cluster
             ])
+            
             sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
             all_ranges = all_ranges[sort_idx]
-            voted_ranges = np.array(rle_voting(all_ranges, vote_thr_count))
+            voted_ranges = np.array(rle_voting(all_ranges, pixel_vote_thr_count))
             
-            instances[instance_id] = {}
-            instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
-            
-            instances[instance_id]['starts'] = voted_ranges[:, 0]
-            instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
-            instance_id += 1
+            if len(voted_ranges) > 0:
+                instances[instance_id] = {}
+                instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+
+                instances[instance_id]['starts'] = voted_ranges[:, 0]
+                instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+                
+                instance_id += 1
             
     return instances

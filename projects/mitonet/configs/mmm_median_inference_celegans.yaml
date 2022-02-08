@@ -3,8 +3,9 @@ BASE: "./mmm_median_inference.yaml"
 # parameters for the inference engine
 engine_params:
   median_kernel_size: 3
+  confidence_thr: 0.3
 
 # simple object size/shape filters
 filters:
   - { name: "remove_small_objects", min_size: 500 }
-  - { name: "remove_pancakes", min_span: 4 }
+  - { name: "remove_pancakes", min_span: 8 }

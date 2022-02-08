@@ -73,7 +73,12 @@ def unpack_rle_attrs(instance_rle_seg):
     for label,attrs in instance_rle_seg.items():
         labels.append(int(label))
         boxes.append(attrs['box'])
-        starts.append(attrs['starts'])
-        runs.append(attrs['runs'])
+        if 'rle' in attrs:
+            rle = string_to_rle(attrs['rle'])
+            starts.append(rle[0])
+            runs.append(rle[1])
+        else:
+            starts.append(attrs['starts'])
+            runs.append(attrs['runs'])
 
     return np.array(labels), np.array(boxes), starts, runs

@@ -156,8 +156,7 @@ class MedianInferenceEngine(InferenceEngine):
 
         # move image to same device as the model
         device = next(self.model.parameters()).device
-        if device != 'cpu':
-            image = image.cuda(non_blocking=True)
+        image = image.to(device, non_blocking=True)
 
         # infer labels
         model_out = self.infer(image)

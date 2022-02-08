@@ -40,7 +40,7 @@ class SingleClassInstanceDataset(_BaseDataset):
             output = self.transforms(image=image, mask=mask)
         else:
             output = {'image': image, 'mask': mask}
-    
+        
         mask = output['mask']
         heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
         output['ctr_hmp'] = heatmap

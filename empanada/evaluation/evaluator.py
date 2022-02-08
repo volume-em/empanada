@@ -1,42 +1,21 @@
 import json
 import numpy as np
 from empanada.array_utils import *
+from empanada.inference.matcher import rle_matcher
 
-def rle_matcher(
-    gt_labels,
-    gt_boxes, 
-    gt_encodings,
-    pred_labels,
-    pred_boxes, 
-    pred_encodings,
-    return_iou_matrix=True
-):
-    # screen matches by bounding box iou
-    box_matches = np.array(box_iou(gt_boxes, pred_boxes).nonzero()).T
-    
-    # compute mask IoUs of all possible matches
-    iou_matrix = np.zeros((len(gt_boxes), len(pred_boxes)), dtype='float')
-    gt_matched = []
-    pred_matched = []
-    for r1, r2 in zip(*tuple(box_matches.T)):
-        # TODO: convert from string to rle before entering this function
-        r1_starts, r1_runs = string_to_rle(gt_encodings[r1])
-        r2_starts, r2_runs = string_to_rle(pred_encodings[r2])
-        pair_iou = rle_iou(r1_starts, r1_runs, r2_starts, r2_runs)
-        
-        iou_matrix[r1, r2] = pair_iou
-        if pair_iou > 0.5:
-            gt_matched.append(r1)
-            pred_matched.append(r2)
-            
-    matched_ious = iou_matrix[gt_matched, pred_matched]
-    gt_matched = gt_labels[gt_matched]
-    pred_matched = pred_labels[pred_matched]
-            
-    if return_iou_matrix:
-        return gt_matched, pred_matched, matched_ious, iou_matrix
+def _merge_encodings_for_semantic(pred_encodings):
+    if len(pred_encodings) > 1:
+        # convert to start and runs: (N, 2)
+        pred_runs = np.concatenate(
+            [np.stack(string_to_rle(enc), axis=1) for enc in pred_encodings]
+        )
+
+        # merge any overlapping runs
+        rles = np.stack(merge_rles(pred_runs[:, 0], pred_runs[:, 1]), axis=1)
     else:
-        return gt_matched, pred_matched, matched_ious
+        rles = np.array([[-1, -1]])
+
+    return rles
 
 class Evaluator:
     def __init__(
@@ -60,7 +39,7 @@ class Evaluator:
             encodings.append(instance_dict[k]['rle'])
             
         return np.array(labels), np.array(boxes), encodings
-        
+
     def __call__(self, gt_json_fpath, pred_json_fpath, return_instances=False):
         # load the json files for each
         with open(gt_json_fpath, mode='r') as f:
@@ -83,17 +62,18 @@ class Evaluator:
             # decode and concatenate all gt and pred encodings
             # N.B. This will break badly for dense semantic classes!
             gt_indices = np.concatenate([np.stack(string_to_rle(enc), axis=1) for enc in gt_encodings])
-            pred_indices = np.concatenate([np.stack(string_to_rle(enc), axis=1) for enc in pred_encodings])
-            
+            pred_indices = _merge_encodings_for_semantic(pred_encodings)
+                
             # calculate semantic metrics
             semantic_results = {name: func(gt_indices, pred_indices) for name,func in self.semantic_metrics.items()}
         
         if self.instance_metrics is not None or self.panoptic_metrics is not None:
             # match instances
-            gt_matched, pred_matched, matched_ious, iou_matrix = \
-            rle_matcher(gt_labels, gt_boxes, gt_encodings, 
-                        pred_labels, pred_boxes, pred_encodings, 
-                        return_iou_matrix=True)
+            matched_labels, all_labels, matched_ious = \
+            rle_matcher(gt_json['instances'], pred_json['instances'])
+            
+            gt_labels, gt_matched = all_labels[0], matched_labels[0]
+            pred_labels, pred_matched = all_labels[1], matched_labels[1]
             
             # determine unmatched instance ids
             gt_unmatched = np.setdiff1d(gt_labels, gt_matched)
@@ -119,7 +99,6 @@ class Evaluator:
             instances_dict = {
                 'gt_matched': gt_matched, 'pred_matched': pred_matched,
                 'gt_unmatched': gt_unmatched, 'pred_unmatched': pred_unmatched,
-                'iou_matrix': iou_matrix
             }
             return results_dict, instances_dict
         else:

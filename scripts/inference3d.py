@@ -283,7 +283,6 @@ if __name__ == "__main__":
             filters.remove_small_objects(tracker, min_size=args.min_size)
             filters.remove_pancakes(tracker, min_span=args.min_span)
 
-
     # create the final instance segmentations
     for class_id, class_name in zip(config['labels'], config['class_names']):
         # get the relevant trackers for the class_label
@@ -331,7 +330,7 @@ if __name__ == "__main__":
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
 
-
+    """
     # run evaluation
     consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
     semantic_metrics = {'IoU': iou}
@@ -348,3 +347,4 @@ if __name__ == "__main__":
 
         for k, v in results.items():
             print(k, v)
+    """

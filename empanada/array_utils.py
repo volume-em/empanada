@@ -116,7 +116,7 @@ def merge_boxes(box1, box2):
 
     return tuple(merged_box)
 
-def box_iou(boxes1, boxes2=None):
+def box_iou(boxes1, boxes2=None, return_intersection=False):
     """
     Calculates the pairwise intersection-over-union between sets of boxes.
 
@@ -145,7 +145,11 @@ def box_iou(boxes1, boxes2=None):
 
     # union is a matrix of same size as intersect
     union = area1[:, None] + area2[None, :] - intersect
-    return intersect / union
+    iou = intersect / union
+    if return_intersection:
+        return iou, intersect
+    else:
+        return iou
 
 def rle_encode(indices):
     """
@@ -340,7 +344,7 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b):
 
     return intersection / area
 
-def rle_iou(starts_a, runs_a, starts_b, runs_b):
+def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     # convert from runs to ends
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
@@ -360,8 +364,11 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b):
     # calculate intersection and divide by union
     intersection = intersection_from_ranges(merged_runs, changes)
     union = runs_a.sum() + runs_b.sum() - intersection
-
-    return intersection / union
+    
+    if return_intersection:
+        return intersection / union, intersection
+    else:
+        return intersection / union
 
 @numba.jit(nopython=True)
 def split_range_by_votes(running_range, num_votes, vote_thr=2):
@@ -479,13 +486,15 @@ def join_ranges(ranges):
 
     return joined
 
-def merge_rles(starts_a, runs_a, starts_b, runs_b):
+def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
     # convert from runs to ranges
-    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
-    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-
-    # merge range
-    merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
+    if starts_b is not None and runs_b is not None:
+        ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+        ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
+        merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
+    else:
+        merged_ranges = np.stack([starts_a, starts_a + runs_a], axis=1)
+    
     sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
     merged_ranges = merged_ranges[sort_indices]
 

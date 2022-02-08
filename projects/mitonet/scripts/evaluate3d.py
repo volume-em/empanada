@@ -112,7 +112,7 @@ if __name__ == "__main__":
             del state_dict[k]
 
     msg = model.load_state_dict(state['state_dict'], strict=True)
-    model.to('cuda:0') # move model to GPU 0
+    model.to('cuda' if torch.cuda.device_count() > 0 else 'cpu') # move model to GPU 0
 
     # set the evaluation transforms
     norms = state['norms']
@@ -247,7 +247,7 @@ if __name__ == "__main__":
             for filt,kwargs in zip(filter_names, filter_kwargs):
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
-
+                    
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
         # get the relevant trackers for the class_label
@@ -265,7 +265,7 @@ if __name__ == "__main__":
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
 
             # fill with the consensus instances
-            consensus_tracker.instances = merge_objects3d(class_trackers)
+            consensus_tracker.instances = merge_objects3d(class_trackers, **config['INFERENCE']['consensus_params'])
 
             # apply filters to final merged segmentation
             if filter_names:
