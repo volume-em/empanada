@@ -116,7 +116,7 @@ def merge_boxes(box1, box2):
 
     return tuple(merged_box)
 
-def box_iou(boxes1, boxes2=None):
+def box_iou(boxes1, boxes2=None, return_intersection=False):
     """
     Calculates the pairwise intersection-over-union between sets of boxes.
 
@@ -145,7 +145,11 @@ def box_iou(boxes1, boxes2=None):
 
     # union is a matrix of same size as intersect
     union = area1[:, None] + area2[None, :] - intersect
-    return intersect / union
+    iou = intersect / union
+    if return_intersection:
+        return iou, intersect
+    else:
+        return iou
 
 def rle_encode(indices):
     """
