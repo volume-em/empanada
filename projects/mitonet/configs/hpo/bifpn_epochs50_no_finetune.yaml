@@ -1,5 +1,0 @@
-BASE: "./bifpn_epochs50_base.yaml"
-
-TRAIN:
-  model_dir: "/data/IASEM/conradrw/models/PB_epoch50_no_finetune"
-  finetune_layer: "none"

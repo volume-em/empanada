@@ -1,4 +1,0 @@
-BASE: "../mmm_median_inference.yaml"
-
-matcher_params:
-  merge_ioa_thr: 99

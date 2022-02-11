@@ -1,4 +1,0 @@
-BASE: "../mmm_median_inference.yaml"
-
-# axes to predict for 3d
-axes: [ 'xy' ]

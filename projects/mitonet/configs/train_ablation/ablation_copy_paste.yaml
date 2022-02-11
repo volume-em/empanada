@@ -1,8 +1,0 @@
-BASE: "../mmm_panoptic_deeplab_pointrend.yaml"
-
-DATASET:
-  dataset_name: "CopyPaste"
-
-TRAIN:
-  augmentations:
-    - { aug: "CopyPaste", blend: True, sigma: 1, pct_objects_paste: 0.8, p: 0.8 }

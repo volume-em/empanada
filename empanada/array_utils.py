@@ -307,6 +307,21 @@ def mask_ioa(mask1, mask2):
 
 @numba.jit(nopython=True)
 def intersection_from_ranges(merged_runs, changes):
+    """
+    Computes intersection from run ranges.
+
+    Arguments:
+    ----------
+    merged_runs: Integer array of (n, 2) where each element is a range of [start, end].
+
+    changes: Boolean array of (n,). True where the current range is from a different
+    source run length encoding than the next range.
+
+    Returns:
+    --------
+    intersection: Integer, number of pixels/voxels that overlap in merged_runs.
+
+    """
     total_inter = 0
 
     check_run = None
@@ -323,28 +338,29 @@ def intersection_from_ranges(merged_runs, changes):
 
     return total_inter
 
-def rle_ioa(starts_a, runs_a, starts_b, runs_b):
-    # convert from runs to ends
-    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
-    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-
-    merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
-    merged_ids = np.concatenate(
-        [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
-    )
-    sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
-
-    merged_runs = merged_runs[sort_indices]
-    merged_ids = merged_ids[sort_indices]
-    changes = merged_ids[:-1] != merged_ids[1:]
-
-    # calculate intersection and divide by area
-    intersection = intersection_from_ranges(merged_runs, changes)
-    area = runs_b.sum()
-
-    return intersection / area
-
 def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
+    """
+    Calculates the IoU between two run length encodings.
+
+    Arguments:
+    ----------
+    starts_a: Array of (n,) where each element is the starting index of a run.
+    
+    runs_a: Array of (n,) where each element is the run length of a run.
+    
+    starts_b: Array of (m,) where each element is the starting index of a run.
+    
+    runs_b: Array of (m, ) where each element is the run length of a run.
+
+    return_intersection: Integer, total number of overlapping pixels/voxels.
+
+    Returns:
+    --------
+    iou: Float, the intersection-over-union score.
+
+    intersection: If return_intersection is True, returns intersection.
+
+    """
     # convert from runs to ends
     ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
     ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
@@ -369,9 +385,74 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
         return intersection / union, intersection
     else:
         return intersection / union
+    
+def rle_ioa(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
+    """
+    Calculates the IoU between two run length encodings.
+
+    Arguments:
+    ----------
+    starts_a: Array of (n,) where each element is the starting index of a run.
+    
+    runs_a: Array of (n,) where each element is the run length of a run.
+    
+    starts_b: Array of (m,) where each element is the starting index of a run.
+    
+    runs_b: Array of (m, ) where each element is the run length of a run.
+
+    return_intersection: Integer, total number of overlapping pixels/voxels.
+
+    Returns:
+    --------
+    iou: Float, the intersection-over-union score.
+
+    intersection: If return_intersection is True, returns intersection.
+
+    """
+    # convert from runs to ends
+    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
+
+    # merge and sort the ranges from two rles
+    merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
+    merged_ids = np.concatenate(
+        [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
+    )
+    sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
+
+    # find where the rle ids change between merged runs
+    merged_runs = merged_runs[sort_indices]
+    merged_ids = merged_ids[sort_indices]
+    changes = merged_ids[:-1] != merged_ids[1:]
+
+    # calculate intersection and divide by union
+    intersection = intersection_from_ranges(merged_runs, changes)
+    area = runs_b.sum()
+    
+    if return_intersection:
+        return intersection / area, intersection
+    else:
+        return intersection / area
 
 @numba.jit(nopython=True)
 def split_range_by_votes(running_range, num_votes, vote_thr=2):
+    """
+    Splits a range into two new ranges based on the votes for each index.
+
+    Arguments:
+    ----------
+    running_range: List of 2. First element is the run start and second element is run end.
+
+    num_votes: List of n. Each element is the number of votes for a particular index
+    within the range(start, end).
+
+    vote_thr: Minimum number of votes for an index to be kept in the running range.
+
+    Returns:
+    --------
+    split_voted_ranges: List of new ranges with indices that had too few votes removed.
+
+    """
     # the running range may be split at places with
     # too few votes to cross the vote_thr
     split_voted_ranges = []
@@ -400,6 +481,9 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
 
 @numba.jit(nopython=True)
 def extend_range(range1, range2, num_votes):
+    """
+
+    """
     # difference between starts is location
     # in num_votes1 to start updating
     first_idx = range2[0] - range1[0]
