@@ -289,14 +289,18 @@ def merge_objects_from_trackers(
     object_trackers, 
     pixel_vote_thr=0.5, 
     cluster_iou_thr=0.75,
+    bypass=False
 ):
     vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
     pixel_vote_thr_count = math.ceil(n_votes * pixel_vote_thr)
     
-    # always need to be majority to avoid overlapping
-    # objects in the final segmentation
-    min_cluster_size = (n_votes // 2) + 1
+    if bypass:
+        min_cluster_size = 1
+    else:
+        # better to require majority clusters
+        # even when not majority voxels
+        min_cluster_size = (n_votes // 2) + 1
     
     # default to maximal merging when
     # not using majority vote
