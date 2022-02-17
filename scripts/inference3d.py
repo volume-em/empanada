@@ -18,7 +18,7 @@ from empanada.inference.matcher import RLEMatcher
 from empanada.inference.tracker import InstanceTracker
 from empanada.array_utils import take, put
 from empanada.zarr_utils import *
-from empanada.consensus import merge_objects3d
+from empanada.consensus import merge_objects_from_trackers
 from empanada.config_loaders import load_config
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
@@ -300,7 +300,7 @@ if __name__ == "__main__":
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
 
             # fill with the consensus instances
-            consensus_tracker.instances = merge_objects3d(class_trackers)
+            consensus_tracker.instances = merge_objects_from_trackers(class_trackers)
 
             # apply filters
             filters.remove_small_objects(consensus_tracker, min_size=args.min_size)

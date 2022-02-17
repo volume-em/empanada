@@ -22,7 +22,7 @@ if __name__ == "__main__":
         os.mkdir(savedir)
 
     # list all pkl deduplicated files
-    fpaths = glob(os.path.join(dedupe_dir, 'Weigert*.pkl'))
+    fpaths = glob(os.path.join(dedupe_dir, 'jrc*.pkl'))
     
     for fp in tqdm(fpaths):
         dataset_name = os.path.basename(fp)

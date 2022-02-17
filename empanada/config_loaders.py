@@ -16,9 +16,10 @@ def load_config(url):
     return config
 
 def merge_dicts(dict1, dict2):
-    # loop through keys in dict2
+    # recursive loop through keys in dict2
     for k,v in dict2.items():
         if isinstance(v, dict) and k in dict1:
+            # inplace operation
             merge_dicts(dict1[k], dict2[k])
         else:
             dict1[k] = v
@@ -53,7 +54,6 @@ def load_config_with_base(config_file, base_kw='BASE'):
         has_base = base_kw in base_config
         config_file = base_config_file
         config = base_config
-
 
     # reverse the order of the configs so that the root
     # config file is first in the list

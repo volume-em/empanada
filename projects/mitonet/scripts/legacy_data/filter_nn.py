@@ -56,9 +56,9 @@ if __name__ == "__main__":
     model.fc = nn.Linear(in_features=512, out_features=1)
 
     # load the weights from online
-    state_dict = torch.hub.load_state_dict_from_url(DEFAULT_WEIGHTS)
+    state_dict = torch.hub.load_state_dict_from_url(DEFAULT_WEIGHTS, map_location='cpu')
     msg = model.load_state_dict(state_dict)
-    model = model.cuda()
+    model = model.to('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = model.eval()
     cudnn.benchmark = True
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     for data in tqdm(test, total=len(test)):
         with torch.no_grad():
             # load data onto gpu then forward pass
-            images = data['image'].cuda(non_blocking=True)
+            images = data['image'].to('cuda:0' if torch.cuda.is_available() else 'cpu', non_blocking=True)
             output = model(images)
             predictions = nn.Sigmoid()(output)
 
@@ -122,27 +122,28 @@ if __name__ == "__main__":
         filtered_subdirs = os.listdir(outdir)
 
         # load the confidence scores for the given subdir
-        with open(os.path.join(segdir, f'{sd}/confidences.json'), mode='r') as handle:
-            orig_conf_dict = json.load(handle)
+        #with open(os.path.join(segdir, f'{sd}/confidences.json'), mode='r') as handle:
+        #    orig_conf_dict = json.load(handle)
 
-        conf_value = orig_conf_dict[fname]
+        #conf_value = orig_conf_dict[fname]
 
         # create subdir for storing the uninformative patches
         if sd not in filtered_subdirs:
             os.makedirs(os.path.join(outdir, sd))
             os.makedirs(os.path.join(outdir, f'{sd}/images'))
             os.makedirs(os.path.join(outdir, f'{sd}/masks'))
-            conf_dict = {fname: conf_value}
+            #conf_dict = {fname: conf_value}
         else:
             # load the confidence dict in uninformative dir for appending
-            with open(os.path.join(outdir, f'{sd}/confidences.json'), mode='r') as handle:
-                conf_dict = json.load(handle)
+            #with open(os.path.join(outdir, f'{sd}/confidences.json'), mode='r') as handle:
+            #    conf_dict = json.load(handle)
 
-            conf_dict[fname] = conf_value
+            #conf_dict[fname] = conf_value
+            pass
 
         # move the uninformative image and its mask
         # then save the confidences with this newly added patch
         os.rename(imp, os.path.join(outdir, f'{sd}/images/{fname}'))
         os.rename(imp.replace('/images/', '/masks/'), os.path.join(outdir, f'{sd}/masks/{fname}'))
-        with open(os.path.join(outdir, f'{sd}/confidences.json'), mode='w') as handle:
-            json.dump(conf_dict, handle)
+        #with open(os.path.join(outdir, f'{sd}/confidences.json'), mode='w') as handle:
+        #    json.dump(conf_dict, handle)

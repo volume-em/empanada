@@ -266,7 +266,7 @@ def crop_and_binarize(mask, box, label):
 
     return mask[slices] == label
 
-def mask_iou(mask1, mask2):
+def mask_iou(mask1, mask2, return_intersection=False):
     """
     Calculates IoU score between two binary masks.
 
@@ -283,7 +283,12 @@ def mask_iou(mask1, mask2):
     """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     union = np.count_nonzero(np.logical_or(mask1, mask2))
-    return intersection / union
+    iou = intersection / union
+    
+    if return_intersection:
+        return iou, intersect
+    else:
+        return iou
 
 def mask_ioa(mask1, mask2):
     """

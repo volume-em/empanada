@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 
 
 install_deps = [
-    'torch>=1.9',
+    'torch>=1.10',
     'torchvision>=0.2',
     'numpy>=1.20',
     'numba>=0.54',

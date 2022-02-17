@@ -21,7 +21,7 @@ from empanada.inference.postprocess import factor_pad
 from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
-from empanada.consensus import merge_objects3d
+from empanada.consensus import merge_objects_from_trackers
 from empanada.config_loaders import load_config_with_base
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
@@ -248,6 +248,10 @@ if __name__ == "__main__":
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
                     
+    import pickle
+    with open('salgland_trackers.pkl', mode='wb') as handle:
+        pickle.dump(trackers, handle)
+                    
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
         # get the relevant trackers for the class_label
@@ -265,7 +269,7 @@ if __name__ == "__main__":
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
 
             # fill with the consensus instances
-            consensus_tracker.instances = merge_objects3d(class_trackers, **config['INFERENCE']['consensus_params'])
+            consensus_tracker.instances = merge_objects_from_trackers(class_trackers, **config['INFERENCE']['consensus_params'])
 
             # apply filters to final merged segmentation
             if filter_names:
