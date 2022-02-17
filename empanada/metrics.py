@@ -72,13 +72,15 @@ class Accuracy(_BaseMetric):
         return correct_k
         
 class IoU(_BaseMetric):
-    def __init__(self, meter, **kwargs):
+    def __init__(self, meter, output_key='sem_logits', target_key='sem', **kwargs):
         super().__init__(meter)
+        self.output_key = output_key
+        self.target_key = target_key
         
     def calculate(self, output, target):
         # only require the semantic segmentation
-        output = output['sem_logits']
-        target = target['sem']
+        output = output[self.output_key]
+        target = target[self.target_key]
         
         # make target the same shape as output by unsqueezing
         # the channel dimension, if needed

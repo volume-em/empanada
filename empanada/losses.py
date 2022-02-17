@@ -125,3 +125,34 @@ class PanopticLoss(nn.Module):
             total_loss += self.pr_weight * pr_ce
         
         return total_loss, aux_loss
+    
+class BCLoss(nn.Module):
+    def __init__(
+        self, 
+        pr_weight=1,
+        top_k_percent=0.15
+    ):
+        super(BCLoss, self).__init__()
+        self.ce_loss = BootstrapCE(top_k_percent)
+        self.pr_loss = PointRendLoss()
+        self.pr_weight = pr_weight
+        
+    def forward(self, output, target):
+        # mask losses
+        sem_ce = self.ce_loss(output['sem_logits'], target['sem'])
+        cnt_ce = self.ce_loss(output['cnt_logits'], target['cnt'])
+        
+        # only evaluate loss inside of ground truth segmentation
+        
+        aux_loss = {'sem_ce': sem_ce.item(), 'cnt_ce': cnt_ce.item()}
+        total_loss = 0.5 * sem_ce + 0.5 * cnt_ce
+            
+        if 'sem_points' in output:
+            sem_pr_ce = self.pr_loss(output['sem_points'], output['sem_point_coords'], target['sem'])
+            cnt_pr_ce = self.pr_loss(output['cnt_points'], output['cnt_point_coords'], target['cnt'])
+            
+            aux_loss['sem_pr_ce'] = sem_pr_ce.item()
+            aux_loss['cnt_pr_ce'] = cnt_pr_ce.item()
+            total_loss += self.pr_weight * (0.5 * sem_pr_ce + 0.5 * cnt_pr_ce)
+        
+        return total_loss, aux_loss

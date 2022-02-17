@@ -13,7 +13,8 @@ backbones = sorted(name for name in encoders.__dict__
 
 __all__ = [
     'PanopticDeepLab',
-    'PanopticDeepLabPR'
+    'PanopticDeepLabPR',
+    'PanopticDeepLabBC'
 ]
     
 class PanopticDeepLab(nn.Module):
@@ -173,6 +174,66 @@ class PanopticDeepLabPR(PanopticDeepLab):
         # resize to original image resolution (4x)
         heads_out['ctr_hmp'] = self.interpolate(ctr_hmp)
         heads_out['offsets'] = self.interpolate(offsets)
+        
+        return heads_out
+    
+class PanopticDeepLabBC(PanopticDeepLab):
+    def __init__(
+        self,
+        num_fc=3,
+        train_num_points=1024,
+        oversample_ratio=3,
+        importance_sample_ratio=0.75,
+        subdivision_steps=2,
+        subdivision_num_points=8192,
+        **kwargs
+    ):
+        super(PanopticDeepLabBC, self).__init__(**kwargs)
+        
+        # remove instance center and regression layers
+        del self.ins_center
+        del self.ins_xy
+        
+        # create the boundary head
+        self.boundary_head = PanopticDeepLabHead(self.decoder_channels, 1)
+        
+        # change semantic head from regular PDL head to 
+        # PDL head + PointRend
+        self.semantic_pr = PointRendSemSegHead(
+            self.decoder_channels, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points
+        )
+        
+        self.boundary_pr = PointRendSemSegHead(
+            self.decoder_channels, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points
+        )
+        
+    def _apply_heads(self, semantic_x, instance_x):
+        heads_out = {}
+        
+        sem = self.semantic_head(semantic_x)
+        cnt = self.boundary_head(instance_x)
+        sem_pr_out = self.semantic_pr(sem, semantic_x)
+        cnt_pr_out = self.boundary_pr(cnt, instance_x)
+        
+        if self.training:
+            # interpolate to original resolution (4x)
+            heads_out['sem_logits'] = self.interpolate(sem_pr_out['sem_seg_logits'])
+            heads_out['sem_points'] = sem_pr_out['point_logits']
+            heads_out['sem_point_coords'] = sem_pr_out['point_coords']
+            
+            heads_out['cnt_logits'] = self.interpolate(cnt_pr_out['sem_seg_logits'])
+            heads_out['cnt_points'] = cnt_pr_out['point_logits']
+            heads_out['cnt_point_coords'] = cnt_pr_out['point_coords']
+        else:
+            # in eval mode interpolation is handled by point rend
+            heads_out['sem_logits'] = sem_pr_out['sem_seg_logits']
+            heads_out['cnt_logits'] = cnt_pr_out['sem_seg_logits']
         
         return heads_out
         
