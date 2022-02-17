@@ -18,7 +18,6 @@ def put(array, indices, value, axis=0):
 
     # modify the array inplace
     array[indices] = value
-    return array[indices]
 
 def box_area(boxes):
     """

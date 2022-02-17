@@ -61,7 +61,7 @@ TRAIN:
   lr_schedule: "OneCycleLR"
   schedule_params:
     max_lr: 0.003
-    epochs: 30
+    epochs: 50
     steps_per_epoch: 339
     pct_start: 0.3
 
