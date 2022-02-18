@@ -152,6 +152,11 @@ if __name__ == "__main__":
     
     # store the segmentation
     data.create_dataset(
+        f'{config_name}_{class_name}_bc_pred', data=orthostack,
+        overwrite=True, chunks=(1, None, None)
+    )
+    
+    data.create_dataset(
         f'{config_name}_{class_name}_pred', data=instance_seg,
         overwrite=True, chunks=(1, None, None)
     )

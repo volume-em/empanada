@@ -145,7 +145,7 @@ class BCLoss(nn.Module):
         # only evaluate loss inside of ground truth segmentation
         
         aux_loss = {'sem_ce': sem_ce.item(), 'cnt_ce': cnt_ce.item()}
-        total_loss = 0.5 * sem_ce + 0.5 * cnt_ce
+        total_loss = sem_ce + cnt_ce
             
         if 'sem_points' in output:
             sem_pr_ce = self.pr_loss(output['sem_points'], output['sem_point_coords'], target['sem'])
@@ -153,6 +153,6 @@ class BCLoss(nn.Module):
             
             aux_loss['sem_pr_ce'] = sem_pr_ce.item()
             aux_loss['cnt_pr_ce'] = cnt_pr_ce.item()
-            total_loss += self.pr_weight * (0.5 * sem_pr_ce + 0.5 * cnt_pr_ce)
+            total_loss += self.pr_weight * (sem_pr_ce + cnt_pr_ce)
         
         return total_loss, aux_loss
