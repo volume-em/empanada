@@ -12,7 +12,7 @@ watershed_params:
   thres1: 0.5
   thres2: 0.5
   thres3: 0.25
-  seed_thres: 400
-  min_size: 800
+  seed_thres: 1000
+  min_size: 3000
   label_divisor: 1000
 

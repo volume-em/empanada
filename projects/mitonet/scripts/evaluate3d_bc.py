@@ -146,15 +146,15 @@ if __name__ == "__main__":
     print('Summing stacks...')
     orthostack = sum(list(axis_stacks.values()))
     
-    # apply bc watershed
-    print('Running watershed...')
-    instance_seg = bc_watershed(orthostack, **config['INFERENCE']['watershed_params'])
-    
     # store the segmentation
     data.create_dataset(
         f'{config_name}_{class_name}_bc_pred', data=orthostack,
         overwrite=True, chunks=(1, None, None)
     )
+    
+    # apply bc watershed
+    print('Running watershed...')
+    instance_seg = bc_watershed(orthostack, **config['INFERENCE']['watershed_params'])
     
     data.create_dataset(
         f'{config_name}_{class_name}_pred', data=instance_seg,
