@@ -16,7 +16,8 @@ install_deps = [
 ]
 
 setup(
-    name='empanada',
+    name='empanada-dl',
+    version='0.1',
     license='BSD-3',
     url='https://github.com/volume-em/empanada',
     packages=find_packages(),
