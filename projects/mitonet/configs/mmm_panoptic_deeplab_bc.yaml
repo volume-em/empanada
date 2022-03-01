@@ -1,0 +1,132 @@
+DATASET:
+  dataset_name: "Baselines"
+  class_names: [ "mito" ]
+  labels: [ 1 ]
+  thing_list: [ 1 ]
+  norms: { mean: 0.508979, std: 0.148561 }
+
+MODEL:
+  arch: "PanopticDeepLabBC"
+  encoder: "resnet50"
+  num_classes: 1
+  stage4_stride: 16
+  decoder_channels: 256
+  low_level_stages: [ 1 ]
+  low_level_channels_project: [ 32 ]
+  atrous_rates: [ 2, 4, 6 ]
+  aspp_channels: null
+  aspp_dropout: 0.5
+  ins_decoder: True
+  ins_ratio: 0.5
+  confidence_head: False
+  confidence_bins: 5
+  
+  # point_rend arguments
+  num_fc: 3
+  train_num_points: 1024
+  oversample_ratio: 3
+  importance_sample_ratio: 0.75
+  subdivision_steps: 2
+  subdivision_num_points: 8192
+
+TRAIN:
+  run_name: "Panoptic DeepLab BC Baseline"
+  # image and model directories
+  train_dir: "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
+  additional_train_dirs:
+    - "/data/IASEM/conradrw/data/panoptic/tem/"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch0/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch1/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5b/train"
+
+  model_dir: "/data/IASEM/conradrw/models/Baselines"
+  save_freq: 1
+
+  # path to .pth file for resuming training
+  resume: null
+
+  # pretraining parameters
+  encoder_pretraining: "/data/IASEM/conradrw/models/pretrained_models/cem1.5m_swav_resnet50_200ep_balanced.pth.tar"
+  whole_pretraining: null
+  finetune_layer: "all"
+
+  # set the lr schedule
+  lr_schedule: "OneCycleLR"
+  schedule_params:
+    max_lr: 0.003
+    epochs: 120
+    steps_per_epoch: 339
+    pct_start: 0.3
+
+  # setup the optimizer
+  amp: True  # automatic mixed precision
+  optimizer: "AdamW"
+  optimizer_params:
+    weight_decay: 0.1
+
+  # criterion parameters
+  criterion: "BCLoss"
+  criterion_params:
+    pr_weight: 1
+    top_k_percent: 0.2
+
+  # performance metrics
+  print_freq: 50
+  metrics:
+      - { metric: "IoU", name: "semantic_iou", output_key: "sem_logits",  target_key: "sem"}
+      - { metric: "IoU", name: "boundary_iou", output_key: "cnt_logits",  target_key: "cnt"}
+
+  # dataset parameters
+  batch_size: 64
+  dataset_class: "BCDataset"
+  weight_gamma: 0.5
+  workers: 8
+
+  augmentations:
+    - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}
+    - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }
+    #- { aug: "RandomResizedCrop", height: 256, width: 256, scale: [ 0.5, 2 ], ratio: [ 0.8, 1.2 ] }
+    - { aug: "RandomCrop", height: 256, width: 256}
+    - { aug: "Rotate", limit: 180, border_mode: 0 }
+    - { aug: "RandomBrightnessContrast", brightness_limit: 0.3, contrast_limit: 0.3 }
+    - { aug: "HorizontalFlip" }
+    - { aug: "VerticalFlip" }
+
+  # distributed training parameters
+  multiprocessing_distributed: False
+  gpu: null
+  world_size: 1
+  rank: 0
+  dist_url: "tcp://localhost:10001"
+  dist_backend: "nccl"
+
+EVAL:
+  eval_dir: "/data/IASEM/conradrw/data/panoptic/test_eval"
+  eval_track_indices: [ 131, 45, 268, 96, 252, 173, 53, 266, 138, 222, 127, 21 ] # from test_eval
+  eval_track_freq: 10
+  epochs_per_eval: 1
+
+  # parameters needed for eval_metrics
+  metrics: [ "IoU", "PQ", "F1" ]
+  metric_params:
+      topk: 1
+      labels: [ 1 ]
+      label_divisor: 1000
+      iou_thr: 0.5
+
+  # parameters needed for inference
+  engine_params:
+    thing_list: [ 1 ]
+    label_divisor: 1000
+    stuff_area: 64
+    void_label: 0
+    nms_threshold: 0.1
+    nms_kernel: 7
+    confidence_thr: 0.5

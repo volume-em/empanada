@@ -16,6 +16,7 @@ from collections import deque
 __all__ = [
     'InferenceEngine',
     'MedianInferenceEngine',
+    'MedianInferenceEngineBC',
     'MultiGPUInferenceEngine',
     'MultiScaleInferenceEngine'
 ]
@@ -99,7 +100,7 @@ class InferenceEngine:
         )
 
         return pan_seg
-
+    
 class MedianInferenceEngine(InferenceEngine):
     def __init__(
         self,
@@ -187,6 +188,73 @@ class MedianInferenceEngine(InferenceEngine):
         )
 
         return pan_seg
+    
+class MedianInferenceEngineBC:
+    def __init__(
+        self,
+        model,
+        median_kernel_size=3,
+        **kwargs
+    ):
+        assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
+        self.model = model.eval()
+        self.ks = median_kernel_size
+        self.median_queue = deque(maxlen=median_kernel_size)
+        self.mid_idx = (median_kernel_size - 1) // 2
+
+    def get_median(self):
+        # each item in deque is shape (1, C, H, W)
+        # cat on batch dim and take the median
+        median_out = torch.median(
+            torch.cat([output for output in self.median_queue], dim=0),
+            dim=0, keepdim=True
+        ).values
+
+        # (1, C, H, W)
+        return median_out
+    
+    @torch.no_grad()
+    def infer(self, image):
+        model_out = self.model(image)
+        sem_logits = model_out['sem_logits']
+        cnt_logits = model_out['cnt_logits']
+
+        # only works for binary
+        assert sem_logits.size(1) == 1
+        sem = torch.sigmoid(sem_logits)
+        cnt = torch.sigmoid(cnt_logits)
+
+        return torch.cat([sem, cnt], dim=1) # (1, 2, H, W)
+
+    def end(self):
+        # list of remaining segs (1, 2, H, W)
+        return list(self.median_queue)[self.mid_idx + 1:]
+
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W) and has a
+        # batch dim of 1, larger batch size raises exception
+        assert image.ndim == 4 and image.size(0) == 1
+
+        # move image to same device as the model
+        device = next(self.model.parameters()).device
+        image = image.to(device, non_blocking=True)
+
+        output = self.infer(image)
+
+        # append results to median queue
+        self.median_queue.append(output)
+
+        nq = len(self.median_queue)
+        if nq <= self.mid_idx:
+            # take last item in the queue
+            output = self.median_queue[-1]
+        elif nq == self.ks:
+            output = self.get_median()
+        else: # implies nq > self.mid_idx and nq < self.ks
+            # return nothing while the queue builds
+            return None
+
+        return output
 
 class MultiGPUInferenceEngine(InferenceEngine):
     def __init__(

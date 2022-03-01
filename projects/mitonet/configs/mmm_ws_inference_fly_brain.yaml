@@ -1,0 +1,18 @@
+# axes to predict for 3d
+axes: [ 'xy', 'xz', 'yz' ]
+
+# list of all segmentation labels
+labels: [ 1 ]
+
+# parameters for the inference engine
+engine_params:
+  median_kernel_size: 9
+
+watershed_params:
+  thres1: 0.5
+  thres2: 0.5
+  thres3: 0.25
+  seed_thres: 1000
+  min_size: 3000
+  label_divisor: 1000
+
