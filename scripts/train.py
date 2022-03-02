@@ -26,7 +26,7 @@ from empanada.inference.engines import InferenceEngine
 from empanada import data
 from empanada import metrics
 from empanada import models
-from empanada.config_loaders import load_config_with_base
+from empanada.config_loaders import load_config
 from empanada.data.utils.sampler import DistributedWeightedSampler
 from empanada.data.utils.transforms import CopyPaste, FactorPad
 
@@ -58,21 +58,11 @@ def parse_args():
     parser.add_argument('config', type=str, metavar='config', help='Path to a config yaml file')
     return parser.parse_args()
 
-def snakemake_args():
-    params = vars(snakemake.params)
-    params['config'] = snakemake.input[0]
-    del params['_names']
-    
-    return argparse.Namespace(**params)
-
 def main():
-    if 'snakemake' in globals():
-        args = snakemake_args()
-    else:
-        args = parse_args()
+    args = parse_args()
 
     # read the config file
-    config = load_config_with_base(args.config)
+    config = load_config(args.config)
 
     config['config_file'] = args.config
     config['config_name'] = os.path.basename(args.config).split('.yaml')[0]
@@ -190,7 +180,7 @@ def main_worker(gpu, ngpus_per_node, config):
     print(f'Model with {num_trainable} trainable parameters.')
     
     if not torch.cuda.is_available():
-        print('using CPU, this will be slow')
+        print('Using CPU, this will be slow')
     elif config['TRAIN']['multiprocessing_distributed']:
         # use Synced batchnorm
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)

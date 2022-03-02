@@ -6,7 +6,6 @@ from empanada.models.heads import PanopticDeepLabHead
 from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.blocks import *
 from empanada.models import encoders
-from einops import rearrange
 from typing import List, Tuple
 from copy import deepcopy
 

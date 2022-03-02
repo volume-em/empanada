@@ -2,11 +2,11 @@ import os
 import yaml
 
 __all__ = [
-    'load_config',
-    'load_config_with_base'
+    'read_yaml',
+    'load_config'
 ]
 
-def load_config(url):
+def read_yaml(url):
     """
     Loads a yaml config file from the given path/url.
     """
@@ -26,12 +26,12 @@ def merge_dicts(dict1, dict2):
 
     return dict1
 
-def load_config_with_base(config_file, base_kw='BASE'):
+def load_config(config_file, base_kw='BASE'):
     """
     Loads a training config file with inheritance.
     """
 
-    config = load_config(config_file)
+    config = read_yaml(config_file)
     has_base = base_kw in config
     
     if not has_base:
@@ -48,7 +48,7 @@ def load_config_with_base(config_file, base_kw='BASE'):
         # load the base config
         base_config_path = os.path.join(os.path.abspath(config_file_dir), base_path)
         base_config_file = os.path.relpath(base_config_path)
-        base_config = load_config(base_config_file)
+        base_config = read_yaml(base_config_file)
 
         base_configs.append(base_config)
         has_base = base_kw in base_config

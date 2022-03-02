@@ -22,7 +22,7 @@ from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
 from empanada.consensus import merge_objects_from_trackers
-from empanada.config_loaders import load_config_with_base
+from empanada.config_loaders import load_config
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
 archs = sorted(name for name in models.__dict__
@@ -77,8 +77,8 @@ if __name__ == "__main__":
     config_name = args.model_config.split('/')[-1].split('.yaml')[0]
 
     # read the config files
-    config = load_config_with_base(args.model_config)
-    infer_config = load_config_with_base(args.infer_config)
+    config = load_config(args.model_config)
+    infer_config = load_config(args.infer_config)
 
     # merge the config files
     config['INFERENCE'] = infer_config

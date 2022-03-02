@@ -20,18 +20,15 @@ def put(array, indices, value, axis=0):
     array[indices] = value
 
 def box_area(boxes):
-    """
-    Computes the area/volume of a set of boxes.
+    r"""Computes the area/volume of a set of boxes.
 
-    Arguments:
-    ----------
-    boxes: Array of size (n, 4) or (n, 6) where bounding box
-    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    Args:
+        boxes: Array of size (n, 4) or (n, 6) where bounding box
+        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
     Returns:
-    --------
-    areas: Array of (n,) of each box area/volume.
-
+        areas: Array of (n,) of each box area/volume.
+        
     """
 
     ndim = boxes.shape[1] // 2
@@ -49,7 +46,7 @@ def box_intersection(boxes1, boxes2=None):
     bounding boxes.
 
     Arguments:
-    ----------
+    -------------
     boxes1: Array of size (n, 4) or (n, 6) where bounding box
     is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
@@ -59,7 +56,7 @@ def box_intersection(boxes1, boxes2=None):
     all pairs of boxes in boxes1. Default, None.
 
     Returns:
-    --------
+    -------------
     intersections: Array of (n, m) defining pairwise area/volume
     intersection between boxes.
 
@@ -90,13 +87,13 @@ def merge_boxes(box1, box2):
     Merges two bounding boxes into 1 box that encloses both.
 
     Arguments:
-    ----------
+    -------------
     box1: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
     box2: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
     Returns:
-    --------
+    -------------
     merged_box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
     Defines the box that completely encloses box1 and box2.
 
@@ -120,7 +117,7 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
     Calculates the pairwise intersection-over-union between sets of boxes.
 
     Arguments:
-    ----------
+    -------------
     boxes1: Array of size (n, 4) or (n, 6) where bounding box
     is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
@@ -130,7 +127,7 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
     all pairs of boxes in boxes1. Default, None.
 
     Returns:
-    --------
+    -------------
     ious: Array of (n, m) defining pairwise IoUs between boxes.
 
     """
@@ -155,11 +152,11 @@ def rle_encode(indices):
     Run length encodes an array of 1d indices.
 
     Arguments:
-    ----------
+    -------------
     indices: An array of (n,) indices to run length encode.
 
     Returns:
-    --------
+    -------------
     starts: Array of (l,) starting indices.
 
     runs: Array of (l,) run lengths.
@@ -187,13 +184,13 @@ def rle_decode(starts, runs):
     Decodes run length encoding arrays to an array of indices.
 
     Arguments:
-    --------
+    -------------
     starts: Array of (l,) starting indices.
 
     runs: Array of (l,) run lengths.
 
     Returns:
-    --------
+    -------------
     indices: An array of (n,) decoded indices.
 
     """
@@ -208,13 +205,13 @@ def rle_to_string(starts, runs):
     Converts run length encoding to a string.
 
     Arguments:
-    --------
+    -------------
     starts: Array of (l,) starting indices.
 
     runs: Array of (l,) run lengths.
 
     Returns:
-    --------
+    -------------
     rle_string: String representation of a run length encoding.
     Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
@@ -227,12 +224,12 @@ def string_to_rle(encoding):
     Converts run length encoding string to start and run arrays.
 
     Arguments:
-    --------
+    -------------
     rle_string: String representation of a run length encoding.
     Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
     Returns:
-    --------
+    -------------
     starts: Array of (l,) starting indices.
 
     runs: Array of (l,) run lengths.
@@ -248,7 +245,7 @@ def crop_and_binarize(mask, box, label):
     where it's equal to the given label value.
 
     Arguments:
-    ----------
+    -------------
     mask: Array of (h, w) or (d, h, w) defining an image.
 
     box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
@@ -256,7 +253,7 @@ def crop_and_binarize(mask, box, label):
     label: Label value to binarize within cropped mask.
 
     Returns:
-    --------
+    -------------
     binary_cropped_mask: Boolean array of (h', w') or (d', h', w').
 
     """
@@ -270,13 +267,13 @@ def mask_iou(mask1, mask2, return_intersection=False):
     Calculates IoU score between two binary masks.
 
     Arguments:
-    ---------
+    -------------
     mask1: Boolean array of (h, w) or (d, h, w) defining an image.
 
     mask2: Boolean array of (h, w) or (d, h, w) defining an image.
 
     Returns:
-    --------
+    -------------
     iou_score: Float IoU score.
 
     """
@@ -295,13 +292,13 @@ def mask_ioa(mask1, mask2):
     The object area is derived from mask2.
 
     Arguments:
-    ---------
+    -------------
     mask1: Boolean array of (h, w) or (d, h, w) defining an image.
 
     mask2: Boolean array of (h, w) or (d, h, w) defining an image.
 
     Returns:
-    --------
+    -------------
     ioa_score: Float IoA score.
 
     """
@@ -315,14 +312,14 @@ def intersection_from_ranges(merged_runs, changes):
     Computes intersection from run ranges.
 
     Arguments:
-    ----------
+    -------------
     merged_runs: Integer array of (n, 2) where each element is a range of [start, end].
 
     changes: Boolean array of (n,). True where the current range is from a different
     source run length encoding than the next range.
 
     Returns:
-    --------
+    -------------
     intersection: Integer, number of pixels/voxels that overlap in merged_runs.
 
     """
@@ -347,7 +344,7 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     Calculates the IoU between two run length encodings.
 
     Arguments:
-    ----------
+    -------------
     starts_a: Array of (n,) where each element is the starting index of a run.
     
     runs_a: Array of (n,) where each element is the run length of a run.
@@ -359,7 +356,7 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     return_intersection: Integer, total number of overlapping pixels/voxels.
 
     Returns:
-    --------
+    -------------
     iou: Float, the intersection-over-union score.
 
     intersection: If return_intersection is True, returns intersection.
@@ -395,7 +392,7 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     Calculates the IoU between two run length encodings.
 
     Arguments:
-    ----------
+    -------------
     starts_a: Array of (n,) where each element is the starting index of a run.
     
     runs_a: Array of (n,) where each element is the run length of a run.
@@ -407,7 +404,7 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
     return_intersection: Integer, total number of overlapping pixels/voxels.
 
     Returns:
-    --------
+    -------------
     iou: Float, the intersection-over-union score.
 
     intersection: If return_intersection is True, returns intersection.
@@ -444,7 +441,7 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
     Splits a range into two new ranges based on the votes for each index.
 
     Arguments:
-    ----------
+    -------------
     running_range: List of 2. First element is the run start and second element is run end.
 
     num_votes: List of n. Each element is the number of votes for a particular index
@@ -453,7 +450,7 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
     vote_thr: Minimum number of votes for an index to be kept in the running range.
 
     Returns:
-    --------
+    -------------
     split_voted_ranges: List of new ranges with indices that had too few votes removed.
 
     """
