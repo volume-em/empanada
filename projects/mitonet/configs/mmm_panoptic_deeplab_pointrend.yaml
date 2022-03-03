@@ -31,18 +31,18 @@ TRAIN:
   run_name: "Panoptic DeepLab Baseline"
   # image and model directories
   train_dir: "/data/IASEM/conradrw/data/panoptic/tem/"
-  additional_train_dirs: null
-  #  - "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch0/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch1/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2a/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2b/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3a/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
-  #  - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5b/train"
+  additional_train_dirs:
+    - "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch0/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch1/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch3b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch4b/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5a/train"
+    - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch5b/train"
 
   model_dir: "/data/IASEM/conradrw/models/Baselines"
   save_freq: 1

@@ -5,6 +5,7 @@ axes: [ 'xy', 'xz', 'yz' ]
 labels: [ 1 ]
 
 # parameters for the inference engine
+engine: "PanopticDeepLabEngine3d"
 engine_params:
   median_kernel_size: 7
   thing_list: [ 1 ]
@@ -25,7 +26,7 @@ matcher_params:
   force_connected: True
   
 consensus_params:
-  pixel_vote_thr: 0.5
+  pixel_vote_thr: 2
   cluster_iou_thr: 0.75
 
 # simple object size/shape filters

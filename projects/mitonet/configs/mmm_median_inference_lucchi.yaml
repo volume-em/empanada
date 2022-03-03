@@ -4,7 +4,6 @@ BASE: "./mmm_median_inference.yaml"
 engine_params:
   median_kernel_size: 7
   
-
 # simple object size/shape filters
 filters:
   - { name: "remove_small_objects", min_size: 5000 }

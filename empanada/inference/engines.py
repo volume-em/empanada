@@ -38,12 +38,14 @@ class _Engine:
         raise NotImplementedError
 
 class _RenderEngine(_Engine):
-    def __init__(self, model, render_models):
-        self.model = model.eval()
+    def __init__(self, model, render_models, **kwargs):
+        super().__init__(model=model, **kwargs)
         self.render_models = {name: rm.eval() for name, rm in render_models.items()}
 
 class _MedianQueue:
-    def __init__(self, median_kernel_size):
+    def __init__(self, median_kernel_size, **kwargs):
+        # super to allow multiple inheritance
+        super().__init__(**kwargs)
         assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
         self.ks = median_kernel_size
         self.mid_idx = (median_kernel_size - 1) // 2
@@ -75,7 +77,7 @@ class _MedianQueue:
             output = self.median_queue[self.mid_idx]
             # replace output with median output
             for key in keys:
-                output[k] = self.get_median(key)
+                output[key] = self.get_median(key)
 
         return output
 
@@ -162,7 +164,7 @@ class PanopticDeepLabEngine(_Engine):
 
         return pan_seg
 
-class PanopticDeepLabEngine3d(PanopticDeepLabEngine, _MedianQueue):
+class PanopticDeepLabEngine3d(_MedianQueue, PanopticDeepLabEngine):
     def __init__(
         self,
         model,
@@ -180,7 +182,8 @@ class PanopticDeepLabEngine3d(PanopticDeepLabEngine, _MedianQueue):
             model=model, thing_list=thing_list, label_divisor=label_divisor,
             stuff_area=stuff_area, void_label=void_label,
             nms_threshold=nms_threshold, nms_kernel=nms_kernel,
-            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size
+            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size,
+            **kwargs
         )
 
     def end(self):

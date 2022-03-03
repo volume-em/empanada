@@ -251,7 +251,8 @@ if __name__ == "__main__":
                     filters.__dict__[filt](tracker, **kwargs)
 
     # create the final instance segmentations
-    for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
+    for class_id in config['INFERENCE']['labels']:
+        class_name = config['DATASET']['class_names'][class_id]
         # get the relevant trackers for the class_label
         print(f'Creating consensus segmentation for class {class_name}...')
 
@@ -292,7 +293,7 @@ if __name__ == "__main__":
     panoptic_metrics = {'PQ': panoptic_quality}
     evaluator = Evaluator(semantic_metrics, instance_metrics, panoptic_metrics)
 
-    for class_name in config['DATASET']['class_names']:
+    for class_id, class_name in config['DATASET']['class_names'].items():
         gt_json = os.path.join(volume_path, f'{class_name}_gt.json')
         pred_json = os.path.join(volume_path, f'{config_name}_{class_name}_pred.json')
         results = evaluator(gt_json, pred_json)
