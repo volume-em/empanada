@@ -46,8 +46,8 @@ class _BaseMetric:
         self.labels = labels
 
     def update(self, value_dict):
-        for l,v in value_dict:
-            self.meters[l].update(value)
+        for l,v in value_dict.items():
+            self.meters[l].update(v)
 
     def reset(self):
         for l in self.labels:
@@ -183,7 +183,7 @@ class PQ(_BaseMetric):
 
             if tp + fp + fn == 0:
                 # by convention, PQ is 1 for empty masks
-                per_class_results.append(1.)
+                per_class_results[label] = 1.
                 continue
 
             sq = matched_ious.sum() / (tp + 1e-5)
@@ -267,7 +267,7 @@ class ComposeMetrics:
         metrics_dict: Dictionary, keys are the names of metrics and values are
         the _BaseMetric class than records/calculate that metric.
 
-        class_names: List, the names of each class being segmented.
+        class_names: Dictionary, keys are class_ids and values are names.
 
         reset_on_print: Bool. If True, the history of each metric is wiped
         after results are printed.
@@ -298,7 +298,7 @@ class ComposeMetrics:
 
             for l, v in avg_values.items():
                 value_name = self.class_names[l]
-                print_values.append(value.item())
+                print_values.append(v)
                 print_names.append(f'{value_name}_{metric_name}')
 
             if self.reset_on_print:

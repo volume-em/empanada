@@ -31,8 +31,6 @@ class PanopticDeepLab(nn.Module):
         aspp_dropout=0.1,
         ins_decoder=False,
         ins_ratio=0.5,
-        confidence_head=False,
-        confidence_bins=5,
         **kwargs
     ):
         super(PanopticDeepLab, self).__init__()
@@ -82,18 +80,6 @@ class PanopticDeepLab(nn.Module):
         self.ins_xy = PanopticDeepLabHead(decoder_channels, 2)
         
         self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
-        
-        # add classification head, if needed
-        if confidence_head:
-            assert confidence_bins is not None
-            assert confidence_bins >= 3
-            self.confidence_head = nn.Sequential(
-                nn.AdaptiveAvgPool2d((1, 1)),
-                nn.Flatten(1, -1),
-                nn.Linear(self.encoder.cfg.widths[-1], confidence_bins)
-            )
-        else:
-            self.confidence_head = None
             
     def _encode_decode(self, x):
         pyramid_features = self.encoder(x)
@@ -125,10 +111,6 @@ class PanopticDeepLab(nn.Module):
     def forward(self, x):
         pyramid_features, semantic_x, instance_x = self._encode_decode(x)
         output = self._apply_heads(semantic_x, instance_x)
-        
-        # classify the image annotation confidence
-        if self.confidence_head is not None:
-            output['conf'] = self.confidence_head(pyramid_features[-1])
         
         return output
     

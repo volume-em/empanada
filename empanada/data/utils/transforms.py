@@ -1,5 +1,6 @@
 import cv2
 import math
+import numpy as np
 import albumentations as A
 
 __all__ = [
@@ -20,6 +21,20 @@ def resize_by_factor(image, scale_factor=1):
     image = cv2.resize(image, (dw, dh), cv2.INTER_LINEAR)
 
     return image
+
+def factor_pad(image, factor=128):
+    h, w = image.shape[:2]
+    pad_bottom = factor - h % factor if h % factor != 0 else 0
+    pad_right = factor - w % factor if w % factor != 0 else 0
+    if image.ndim == 3:
+        padding = ((0, pad_bottom), (0, pad_right), (0, 0))
+    elif image.ndim == 2:
+        padding = ((0, pad_bottom), (0, pad_right))
+    else:
+        raise Exception
+        
+    padded_image = np.pad(image, padding)
+    return padded_image
 
 class FactorPad(A.Lambda):
     def __init__(self, factor=128):

@@ -27,8 +27,6 @@ class _BaseModel(nn.Module):
         fpn_dim=160,
         fpn_layers=3,
         ins_decoder=False,
-        confidence_head=False,
-        confidence_bins=5,
         depthwise=True,
         **kwargs
     ):
@@ -65,18 +63,6 @@ class _BaseModel(nn.Module):
         self.ins_xy = PanopticDeepLabHead(fpn_dim, 2)
         
         self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
-
-        # add classification head, if needed
-        if confidence_head:
-            assert confidence_bins is not None
-            assert confidence_bins >= 3
-            self.confidence_head = nn.Sequential(
-                nn.AdaptiveAvgPool2d((1, 1)),
-                nn.Flatten(1, -1),
-                nn.Linear(self.encoder.cfg.widths[-1], confidence_bins)
-            )
-        else:
-            self.confidence_head = None
             
     def _forward_encoder(self, x):
         return self.encoder(x)
@@ -119,10 +105,6 @@ class _BaseModel(nn.Module):
 
         output = self._apply_heads(semantic_x, instance_x)
         
-        # classify the image annotation confidence
-        if self.confidence_head is not None:
-            output['conf'] = self.confidence_head(pyramid_features[-1])
-        
         return output
     
 class PanopticBiFPN(_BaseModel):
@@ -133,8 +115,6 @@ class PanopticBiFPN(_BaseModel):
         fpn_dim=160,
         fpn_layers=3,
         ins_decoder=False,
-        confidence_head=False,
-        confidence_bins=5,
         **kwargs
     ):
         super(PanopticBiFPN, self).__init__(
@@ -143,8 +123,6 @@ class PanopticBiFPN(_BaseModel):
             fpn_dim,
             fpn_layers,
             ins_decoder,
-            confidence_head,
-            confidence_bins,
             **kwargs
         )
 
