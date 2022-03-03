@@ -15,6 +15,29 @@ def pan_seg_to_rle_seg(
     thing_list,
     force_connected=True
 ):
+    r"""Converts a panoptic segmentation to run length encodings.
+
+    Args:
+        pan_seg: Array of (h, w) defining a panoptic segmentation.
+
+        labels: List of integers. All labels from pan_seg to encode.
+
+        label_divisor: Integer. The label divisor used to postprocess
+        the panoptic segmentation.
+
+        thing_list: List of integers. All class_id in labels that are
+        instance classses.
+
+        force_connected: Whether to enforce that instances be
+        connected components.
+
+    Returns:
+        rle_seg: Nested dictionary. Top level keys are 'labels', values is
+        a dictionary. Keys in this second level are 'instance_ids', values
+        is a dictionary. Keys in this last level are 'box', 'starts', 'runs'
+        that define the extents and run length encoding of the instance.
+
+    """
     # convert from dense panoptic seg to sparse rle segment class
     rle_seg = {}
     for label in labels:
@@ -51,6 +74,21 @@ def rle_seg_to_pan_seg(
     rle_seg,
     shape
 ):
+    r"""Converts run length encodings to a panoptic segmentation.
+
+    Args:
+        rle_seg: Nested dictionary. Output of pan_seg_to_rle_seg function.
+        Top level keys are 'labels', values is a dictionary. Keys in this
+        second level are 'instance_ids', values is a dictionary. Keys in this
+        last level are 'box', 'starts', 'runs' that define the extents and
+        run length encoding of the instance.
+
+        shape: Tuple of integers. The (height, width) of the pan_seg.
+
+    Returns:
+        pan_seg: Array of (h, w) defining a panoptic segmentation.
+
+    """
     # convert from dense panoptic seg to sparse rle segment class
     pan_seg = np.zeros(shape, dtype='int').ravel()
 
@@ -65,6 +103,19 @@ def rle_seg_to_pan_seg(
     return pan_seg.reshape(shape)
 
 def unpack_rle_attrs(instance_rle_seg):
+    r"""Helper function to unpack the rle dictionary
+    to a few lists.
+
+    Args:
+        instance_rle_seg: Dictionary of all instances for a given class_id.
+
+    Returns:
+        labels: Array of (n,). All labels in the instance_rle_seg.
+        boxes: Array of (n, 4). Bounding boxes for each instance.
+        starts: Array of (l,). Starts for each run.
+        runs: Array of (l,). Run length for each run.
+
+    """
     # extract labels, boxes, and rle for a given class id
     labels = []
     boxes = []

@@ -11,6 +11,23 @@ __all__ = [
 ]
 
 def heatmap_and_offsets(sl2d, heatmap_sigma=6):
+    r"""Creates center heatmap and offsets for panoptic deeplab
+    training.
+
+    Args:
+        sl2d: Array of (h, w) defining an instance segmentation.
+
+        heatmap_sigma: Float. Standard deviation of the Guassian filter
+        that is applied to create the center heatmap.
+
+    Returns:
+        heatmap: Array of (1, h, w) defining the heatmap of instance centers.
+
+        offsets: Array of (2, h, w) defining the offsets from each pixel
+        to the associated instance center. Channels are up-down and
+        left-right offsets respectively.
+
+    """
     # make sure, the input is numpy
     convert = False
     if type(sl2d) == torch.Tensor:
@@ -66,10 +83,8 @@ def seg_to_instance_bd(
     do_bg: bool = True,
     do_convolve: bool = True
 ) -> np.ndarray:
-    """
-    Copied from: https://github.com/zudi-lin/pytorch_connectomics/blob/72d6a0fc75a3275f79fa96c90605abb814bd7a97/connectomics/data/utils/data_segmentation.py
-    
-    Generate instance contour map from segmentation masks.
+    r"""Generate instance contour map from segmentation masks.
+
     Args:
         seg (np.ndarray): segmentation map (3D array is required).
         tsz_h (int, optional): size of the dilation struct. Defaults: 1
@@ -77,15 +92,13 @@ def seg_to_instance_bd(
         do_convolve (bool, optional): convolve with edge filters. Defaults: True
     Returns:
         np.ndarray: binary instance contour map.
-    Note:
-        According to the experiment on the Lucchi mitochondria segmentation dastaset, convolving
-        the edge filters with segmentation masks to generate the contour map is about 3x larger
-        then using the `im2col` function. However, calculating the contour between only non-background
-        instances is not supported under the convolution mode.
+
+    Copied from: https://github.com/zudi-lin/pytorch_connectomics/blob/72d6a0fc75a3275f79fa96c90605abb814bd7a97/connectomics/data/utils/data_segmentation.py
+
     """
     if do_bg == False:
         do_convolve = False
-        
+
     sz = seg.shape
     bd = np.zeros(sz, np.uint8)
     tsz = tsz_h * 2 + 1
@@ -101,7 +114,7 @@ def seg_to_instance_bd(
             edge = np.maximum(np.abs(edge_x), np.abs(edge_y))
             contour = (edge != 0).astype(np.uint8)
             bd[z] = dilation(contour, np.ones((tsz, tsz), dtype=np.uint8))
-            
+
         return bd
 
     mm = seg.max()
@@ -116,5 +129,5 @@ def seg_to_instance_bd(
             patch[patch == 0] = mm+1
             p1 = patch.min(axis=1)
             bd[z] = ((p0 != 0)*(p1 != 0)*(p0 != p1)).reshape(sz[1:])
-            
+
     return bd

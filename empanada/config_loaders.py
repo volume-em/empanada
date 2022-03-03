@@ -7,7 +7,7 @@ __all__ = [
 ]
 
 def read_yaml(url):
-    """
+    r"""
     Loads a yaml config file from the given path/url.
     """
     with open(url, mode='r') as handle:
@@ -16,6 +16,9 @@ def read_yaml(url):
     return config
 
 def merge_dicts(dict1, dict2):
+    r"""
+    Recursively merges dictionaries.
+    """
     # recursive loop through keys in dict2
     for k,v in dict2.items():
         if isinstance(v, dict) and k in dict1:
@@ -27,16 +30,16 @@ def merge_dicts(dict1, dict2):
     return dict1
 
 def load_config(config_file, base_kw='BASE'):
+    r"""
+    Loads a config file with inheritance. The base_kw is the
+    keyword that defines the parent .yaml file.
     """
-    Loads a training config file with inheritance.
-    """
-
     config = read_yaml(config_file)
     has_base = base_kw in config
-    
+
     if not has_base:
         return config
-    
+
     base_configs = [config]
 
     # load configs all the way to root

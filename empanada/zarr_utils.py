@@ -9,6 +9,7 @@ __all__ = [
 
 @numba.jit(nopython=True)
 def fill_func(seg1d, coords, instance_id):
+    r"""Fills coords in seg1d (raveled image) with value instance_id"""
     # inplace fill seg1d with instance_id
     # at the given xy raveled coords
     for coord in coords:
@@ -18,6 +19,7 @@ def fill_func(seg1d, coords, instance_id):
     return seg1d
 
 def fill_zarr_mp(*args):
+    r"""Helper function for multiprocessing the filling of zarr slices"""
     # fills zarr array with multiprocessing
     index, slice_dict, array = args[0]
     d, h, w = array.shape
@@ -28,6 +30,18 @@ def fill_zarr_mp(*args):
     put(array, index, seg2d.reshape(h, w), axis=0)
 
 def zarr_fill_instances(array, instances, processes=4):
+    r"""Fills a zarr array in-place with instances.
+
+    Args:
+        array: zarr.Array of size (d, h, w)
+
+        instances: Dictionary. Keys are instance_ids (integers) and
+        values are another dictionary containing the run length
+        encoding (keys: 'starts', 'runs').
+
+        processes: Integer, the number of processes to run.
+
+    """
     d, h, w = array.shape
 
     # convert instance coords to a z coord

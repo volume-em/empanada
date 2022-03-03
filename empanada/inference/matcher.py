@@ -7,10 +7,113 @@ from empanada.inference.rle import unpack_rle_attrs
 
 __all__ = [
     'fast_matcher',
-    'MaskMatcher',
     'rle_matcher',
     'RLEMatcher'
 ]
+
+def merge_attrs(rle_attr1, rle_attr2):
+    r"""Merges instance bounding boxes and run lengths
+    """
+    # extract labels, boxes, and rle for a given class id
+    rle_attr_out = {}
+    rle_attr_out['box'] = merge_boxes(rle_attr1['box'], rle_attr2['box'])
+
+    starts, runs = merge_rles(
+        rle_attr1['starts'], rle_attr1['runs'],
+        rle_attr2['starts'], rle_attr2['runs']
+    )
+    rle_attr_out['starts'] = starts
+    rle_attr_out['runs'] = runs
+
+    return rle_attr_out
+
+def rle_matcher(
+    target_instance_rles,
+    match_instance_rles,
+    iou_thr=0.5,
+    return_ioa=False
+):
+    r"""Performs Hungarian matching on run length encodings.
+
+    Args:
+        target_instance_rles: Dictionary of instances to match against. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs').
+
+        match_instance_rles: Dictionary of instances to match. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs')
+
+        iou_thr: Minimum IoU to consider instances a match.
+
+        return_ioa: Whether to return intersection-over-area scores between
+        instances in target and match.
+
+    Returns:
+        matched_labels: Tuple of Arrays. First array is matched instances in
+        target, second item is matched instances in match.
+
+        all_labels: Tuple of Arrays. First array is all instances in
+        target, second item is all instances in match.
+
+        matched_ious: Array. IoU scores between all matched instances in
+        matched_labels. Same length as matched_labels.
+
+        ioa_matrix: Array of (n, m) pairwise IoA scores between instances
+        in target and match. Only returned in return_ioa is True.
+    """
+    # screen matches by bounding box iou
+    # extract bounding boxes and labels for
+    # all objects in each instance segmentation
+    target_labels, target_boxes, target_starts, target_runs =\
+    unpack_rle_attrs(target_instance_rles)
+
+    match_labels, match_boxes, match_starts, match_runs =\
+    unpack_rle_attrs(match_instance_rles)
+
+    if len(target_labels) == 0 or len(match_labels) == 0:
+        empty = np.array([])
+        if return_ioa:
+            # no matches, only labels, no matrices
+            return (empty, empty), (target_labels, match_labels), empty, empty
+        else:
+            return (empty, empty), (target_labels, match_labels), empty
+
+    # compute mask IoUs of all possible matches
+    iou_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
+    if return_ioa:
+        ioa_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype=np.float32)
+
+    # match the boxes
+    box_matches = np.array(box_iou(target_boxes, match_boxes).nonzero()).T
+    for r1, r2 in box_matches:
+        iou_matrix[r1, r2] = rle_iou(
+            target_starts[r1], target_runs[r1],
+            match_starts[r2], match_runs[r2],
+        )
+
+        if return_ioa:
+            ioa_matrix[r1, r2] = rle_ioa(
+                target_starts[r1], target_runs[r1],
+                match_starts[r2], match_runs[r2],
+            )
+
+    # returns tuple of indices and ious/ioas of instances
+    match_rows, match_cols = linear_sum_assignment(iou_matrix, maximize=True)
+
+    # filter out matches with iou less than thr
+    if iou_thr is not None:
+        iou_mask = iou_matrix[match_rows, match_cols] >= iou_thr
+        match_rows = match_rows[iou_mask]
+        match_cols = match_cols[iou_mask]
+
+    # convert from indices in matrix to instance labels
+    matched_labels = (target_labels[match_rows], match_labels[match_cols])
+    all_labels = [target_labels, match_labels]
+    matched_ious = iou_matrix[(match_rows, match_cols)]
+
+    if return_ioa:
+        return matched_labels, all_labels, matched_ious, ioa_matrix
+    else:
+        return matched_labels, all_labels, matched_ious
 
 def fast_matcher(
     target_instance_seg,
@@ -18,6 +121,33 @@ def fast_matcher(
     iou_thr=0.5,
     return_ioa=False
 ):
+    r"""Performs Hungarian matching on segmentation masks.
+
+    Args:
+        target_instance_seg: Array. Target instance segmentation against
+        which to match.
+
+        match_instance_seg: Array. Match instance segmentation from which
+        to match instances.
+
+        iou_thr: Minimum IoU to consider instances a match.
+
+        return_ioa: Whether to return intersection-over-area scores between
+        instances in target and match.
+
+    Returns:
+        matched_labels: Tuple of Arrays. First array is matched instances in
+        target, second item is matched instances in match.
+
+        all_labels: Tuple of Arrays. First array is all instances in
+        target, second item is all instances in match.
+
+        matched_ious: Array. IoU scores between all matched instances in
+        matched_labels. Same length as matched_labels.
+
+        ioa_matrix: Array of (n, m) pairwise IoA scores between instances
+        in target and match. Only returned in return_ioa is True.
+    """
     # extract bounding boxes and labels for
     # all objects in each instance segmentation
     rps = measure.regionprops(target_instance_seg)
@@ -82,6 +212,27 @@ def fast_matcher(
         return matched_labels, all_labels, matched_ious
 
 class MaskMatcher:
+    r"""Tracks and matches instances across consecutive segmentation masks
+    in a stack.
+
+    Args:
+        class_id: Integer. The class_id in the panoptic segmentation
+        that is covered by this matcher.
+
+        label_divisor: Integer. The label divisor used to postprocess
+        the panoptic segmentation.
+
+        merge_iou_thr: Minimum IoU to consider instances a match.
+
+        merge_ioa_thr: Minimum IoA to consider an instance as a false split.
+
+        assign_new: Whether to assign unmatched objects a new label in the
+        stack.
+
+        force_connected: Whether to enforce that instances within a mask
+        be connected components.
+
+    """
     def __init__(
         self,
         class_id,
@@ -96,7 +247,7 @@ class MaskMatcher:
         self.merge_iou_thr = merge_iou_thr
         self.merge_ioa_thr = merge_ioa_thr
         self.assign_new = assign_new
-        self.next_label = label_divisor + 1
+        self.next_label = (class_id * label_divisor) + 1
         self.target_seg = None
         self.force_connected = force_connected
 
@@ -197,82 +348,25 @@ class MaskMatcher:
         # return the matched panoptic segmentation
         return match_pan_seg
 
-def merge_attrs(rle_attr1, rle_attr2):
-    # extract labels, boxes, and rle for a given class id
-    rle_attr_out = {}
-    rle_attr_out['box'] = merge_boxes(rle_attr1['box'], rle_attr2['box'])
-
-    starts, runs = merge_rles(
-        rle_attr1['starts'], rle_attr1['runs'],
-        rle_attr2['starts'], rle_attr2['runs']
-    )
-    rle_attr_out['starts'] = starts
-    rle_attr_out['runs'] = runs
-
-    return rle_attr_out
-
-def rle_matcher(
-    target_instance_rles,
-    match_instance_rles,
-    iou_thr=0.5,
-    return_ioa=False
-):
-    # screen matches by bounding box iou
-    # extract bounding boxes and labels for
-    # all objects in each instance segmentation
-    target_labels, target_boxes, target_starts, target_runs =\
-    unpack_rle_attrs(target_instance_rles)
-
-    match_labels, match_boxes, match_starts, match_runs =\
-    unpack_rle_attrs(match_instance_rles)
-
-    if len(target_labels) == 0 or len(match_labels) == 0:
-        empty = np.array([])
-        if return_ioa:
-            # no matches, only labels, no matrices
-            return (empty, empty), (target_labels, match_labels), empty, empty
-        else:
-            return (empty, empty), (target_labels, match_labels), empty
-
-    # compute mask IoUs of all possible matches
-    iou_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
-    if return_ioa:
-        ioa_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype=np.float32)
-
-    # match the boxes
-    box_matches = np.array(box_iou(target_boxes, match_boxes).nonzero()).T
-    for r1, r2 in box_matches:
-        iou_matrix[r1, r2] = rle_iou(
-            target_starts[r1], target_runs[r1],
-            match_starts[r2], match_runs[r2],
-        )
-
-        if return_ioa:
-            ioa_matrix[r1, r2] = rle_ioa(
-                target_starts[r1], target_runs[r1],
-                match_starts[r2], match_runs[r2],
-            )
-
-    # returns tuple of indices and ious/ioas of instances
-    match_rows, match_cols = linear_sum_assignment(iou_matrix, maximize=True)
-
-    # filter out matches with iou less than thr
-    if iou_thr is not None:
-        iou_mask = iou_matrix[match_rows, match_cols] >= iou_thr
-        match_rows = match_rows[iou_mask]
-        match_cols = match_cols[iou_mask]
-
-    # convert from indices in matrix to instance labels
-    matched_labels = (target_labels[match_rows], match_labels[match_cols])
-    all_labels = [target_labels, match_labels]
-    matched_ious = iou_matrix[(match_rows, match_cols)]
-
-    if return_ioa:
-        return matched_labels, all_labels, matched_ious, ioa_matrix
-    else:
-        return matched_labels, all_labels, matched_ious
-
 class RLEMatcher:
+    r"""Tracks and matches instances across consecutive run length encodings
+    in a stack.
+
+    Args:
+        class_id: Integer. The class_id in the panoptic segmentation
+        that is covered by this matcher.
+
+        label_divisor: Integer. The label divisor used to postprocess
+        the panoptic segmentation.
+
+        merge_iou_thr: Minimum IoU to consider instances a match.
+
+        merge_ioa_thr: Minimum IoA to consider an instance as a false split.
+
+        assign_new: Whether to assign unmatched objects a new label in the
+        stack.
+
+    """
     def __init__(
         self,
         class_id,
@@ -287,7 +381,7 @@ class RLEMatcher:
         self.merge_iou_thr = merge_iou_thr
         self.merge_ioa_thr = merge_ioa_thr
         self.assign_new = assign_new
-        self.next_label = label_divisor + 1
+        self.next_label = (class_id * label_divisor) + 1
         self.target_rle = None
 
     def initialize_target(self, target_instance_rles):

@@ -8,7 +8,8 @@ __all__ = [
 ]
 
 class DistributedWeightedSampler(Sampler):
-    """
+    r"""Weighted sampler for distributed multiGPU training.
+
     Adapted from https://discuss.pytorch.org/t/how-to-use-my-own-sampler-when-i-already-use-distributedsampler/62143/7.
     """
     def __init__(

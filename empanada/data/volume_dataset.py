@@ -6,6 +6,21 @@ from empanada.array_utils import take
 from empanada.data.utils import resize_by_factor
 
 class VolumeDataset(Dataset):
+    r"""Dataset for loading and transforming images cut from
+    a particular index and axis of a volume.
+
+    Args:
+        array: Array of (d, h, w) defining an image volume. Can be
+        np.ndarray, zarr.Array or dask.core.Array type.
+
+        axis: Integer [0, 1, 2]. Axis to take slices from.
+
+        tfs: Albumentations-like transforms to apply to the image slices.
+
+        scale: Integer, exponent of 2 (e.g., 2, 4, 8, 16...). Downsampling
+        to apply to the image before transformation.
+
+    """
     def __init__(self, array, axis=0, tfs=None, scale=1):
         super(VolumeDataset, self).__init__()
         if not math.log(scale, 2).is_integer():
@@ -32,7 +47,7 @@ class VolumeDataset(Dataset):
         image = resize_by_factor(image, self.scale)
         assert (image.shape[0] * self.scale) >= h
         assert (image.shape[1] * self.scale) >= w
-        
+
         image = self.tfs(image=image)['image']
 
         return {'index': idx, 'image': image, 'size': (h, w)}

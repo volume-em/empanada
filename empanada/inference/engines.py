@@ -14,14 +14,78 @@ from collections import deque
 
 
 __all__ = [
-    'InferenceEngine',
-    'MedianInferenceEngine',
-    'MedianInferenceEngineBC',
-    'MultiGPUInferenceEngine',
-    'MultiScaleInferenceEngine'
+    'PanopticDeepLabEngine',
+    'PanopticDeepLabEngine3d',
+    'BCEngine',
+    'BCEngine3d',
+    'PanopticDeepLabRenderEngine3d',
+    'PanopticDeepLabMultiGPU'
 ]
 
-class InferenceEngine:
+class _Engine:
+    def __init__(self, model):
+        self.model = model.eval()
+
+    def infer(self, image):
+        raise NotImplementedError
+
+    def to_model_device(self, tensor):
+        # move tensor to the model device
+        device = next(self.model.parameters()).device
+        return tensor.to(device, non_blocking=True)
+
+    def __call__(self, image):
+        raise NotImplementedError
+
+class _RenderEngine(_Engine):
+    def __init__(self, model, render_models):
+        self.model = model.eval()
+        self.render_models = {name: rm.eval() for name, rm in render_models.items()}
+
+class _MedianQueue:
+    def __init__(self, median_kernel_size):
+        assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
+        self.ks = median_kernel_size
+        self.mid_idx = (median_kernel_size - 1) // 2
+        self.median_queue = deque(maxlen=median_kernel_size)
+
+    def reset(self):
+        self.median_queue = deque(maxlen=self.ks)
+
+    @torch.no_grad()
+    def get_median(self, key):
+        median = torch.median(
+            torch.cat([output[key] for output in self.median_queue], dim=0),
+            dim=0, keepdim=True
+        ).values
+
+        return median
+
+    def get_next(self, keys):
+        nq = len(self.median_queue)
+        if nq <= self.mid_idx:
+            # take last item in the queue
+            output = self.median_queue[-1]
+        elif nq > self.mid_idx and nq < self.ks:
+            # return nothing while the queue builds
+            return None
+        elif nq == self.ks:
+            # use the middle item in the queue
+            # with the median segmentation probs
+            output = self.median_queue[self.mid_idx]
+            # replace output with median output
+            for key in keys:
+                output[k] = self.get_median(key)
+
+        return output
+
+    def enqueue(self, item):
+        self.median_queue.append(item)
+
+    def end(self):
+        raise NotImplementedError
+
+class PanopticDeepLabEngine(_Engine):
     def __init__(
         self,
         model,
@@ -34,8 +98,7 @@ class InferenceEngine:
         confidence_thr=0.5,
         **kwargs
     ):
-        # set model to eval mode
-        self.model = model.eval()
+        super().__init__(model=model)
         self.thing_list = thing_list
         self.label_divisor = label_divisor
         self.stuff_area = stuff_area
@@ -44,6 +107,7 @@ class InferenceEngine:
         self.nms_kernel = nms_kernel
         self.confidence_thr = confidence_thr
 
+    @torch.no_grad()
     def _harden_seg(self, sem):
         if sem.size(1) > 1: # multiclass segmentation
             sem = torch.argmax(sem, dim=1, keepdim=True)
@@ -52,6 +116,7 @@ class InferenceEngine:
 
         return sem
 
+    @torch.no_grad()
     def infer(self, image):
         # run inference
         with torch.no_grad():
@@ -68,6 +133,7 @@ class InferenceEngine:
         model_out['sem'] = sem
         return model_out
 
+    @torch.no_grad()
     def postprocess(self, sem, ctr_hmp, offsets):
         pan_seg, _ = get_panoptic_segmentation(
             sem, ctr_hmp, offsets, self.thing_list,
@@ -76,18 +142,13 @@ class InferenceEngine:
         )
         return pan_seg
 
-    def end(self):
-        # no history to finish
-        return []
-
     def __call__(self, image):
         # check that image is 4d (N, C, H, W) and has a
         # batch dim of 1, larger batch size raises exception
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
-        device = next(self.model.parameters()).device
-        image = image.to(device, non_blocking=True)
+        image = self.to_model_device(image)
 
         # infer labels and postprocess
         model_out = self.infer(image)
@@ -100,8 +161,8 @@ class InferenceEngine:
         )
 
         return pan_seg
-    
-class MedianInferenceEngine(InferenceEngine):
+
+class PanopticDeepLabEngine3d(PanopticDeepLabEngine, _MedianQueue):
     def __init__(
         self,
         model,
@@ -115,29 +176,18 @@ class MedianInferenceEngine(InferenceEngine):
         median_kernel_size=3,
         **kwargs
     ):
-        assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
         super().__init__(
-            model, thing_list, label_divisor, stuff_area,
-            void_label, nms_threshold, nms_kernel, confidence_thr,
-            **kwargs
+            model=model, thing_list=thing_list, label_divisor=label_divisor,
+            stuff_area=stuff_area, void_label=void_label,
+            nms_threshold=nms_threshold, nms_kernel=nms_kernel,
+            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size
         )
 
-        self.ks = median_kernel_size
-        self.median_queue = deque(maxlen=median_kernel_size)
-        self.mid_idx = (median_kernel_size - 1) // 2
-
-    def get_median_sem(self):
-        # each item in deque is shape (1, C, H, W)
-        # cat on batch dim and take the median
-        median_sem = torch.median(
-            torch.cat([output['sem'] for output in self.median_queue], dim=0),
-            dim=0, keepdim=True
-        ).values
-
-        # (1, C, H, W)
-        return median_sem
-
     def end(self):
+        f"""
+        Define what happens to results left in the queue at the
+        end of inference.
+        """
         # any items past self.mid_idx remaining
         # in the queue are postprocessed and returned
         final_segs = []
@@ -156,29 +206,16 @@ class MedianInferenceEngine(InferenceEngine):
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
-        device = next(self.model.parameters()).device
-        image = image.to(device, non_blocking=True)
+        image = self.to_model_device(image)
 
-        # infer labels
+        # infer labels and postprocess
         model_out = self.infer(image)
 
-        # append results to median queue
-        self.median_queue.append(model_out)
-
-        nq = len(self.median_queue)
-        if nq <= self.mid_idx:
-            # take last item in the queue
-            median_out = self.median_queue[-1]
-        elif nq > self.mid_idx and nq < self.ks:
-            # return nothing while the queue builds
+        self.enqueue(model_out)
+        median_out = self.get_next(keys=['sem'])
+        if median_out is None:
+            # nothing to return, we're building the queue
             return None
-        elif nq == self.ks:
-            # use the middle item in the queue
-            # with the median segmentation probs
-            median_out = self.median_queue[self.mid_idx]
-            median_out['sem'] = self.get_median_sem()
-        else:
-            raise Exception('Queue length cannot exceed maxlen!')
 
         # harden the segmentation to (N, 1, H, W)
         median_out['sem'] = self._harden_seg(median_out['sem'])
@@ -188,31 +225,11 @@ class MedianInferenceEngine(InferenceEngine):
         )
 
         return pan_seg
-    
-class MedianInferenceEngineBC:
-    def __init__(
-        self,
-        model,
-        median_kernel_size=3,
-        **kwargs
-    ):
-        assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
-        self.model = model.eval()
-        self.ks = median_kernel_size
-        self.median_queue = deque(maxlen=median_kernel_size)
-        self.mid_idx = (median_kernel_size - 1) // 2
 
-    def get_median(self):
-        # each item in deque is shape (1, C, H, W)
-        # cat on batch dim and take the median
-        median_out = torch.median(
-            torch.cat([output for output in self.median_queue], dim=0),
-            dim=0, keepdim=True
-        ).values
+class BCEngine(_Engine):
+    def __init__(self, model, **kwargs):
+        super().__init__(model=model)
 
-        # (1, C, H, W)
-        return median_out
-    
     @torch.no_grad()
     def infer(self, image):
         model_out = self.model(image)
@@ -224,7 +241,16 @@ class MedianInferenceEngineBC:
         sem = torch.sigmoid(sem_logits)
         cnt = torch.sigmoid(cnt_logits)
 
-        return torch.cat([sem, cnt], dim=1) # (1, 2, H, W)
+        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
+
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W)
+        assert image.ndim == 4 and image.size(0) == 1
+        return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
+
+class BCEngine3d(BCEngine, _MedianQueue):
+    def __init__(self, model, median_kernel_size=3, **kwargs):
+        super().__init__(model=model, median_kernel_size=median_kernel_size)
 
     def end(self):
         # list of remaining segs (1, 2, H, W)
@@ -236,147 +262,45 @@ class MedianInferenceEngineBC:
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
-        device = next(self.model.parameters()).device
-        image = image.to(device, non_blocking=True)
+        image = self.to_model_device(image)
 
-        output = self.infer(image)
+        # infer labels and postprocess
+        model_out = self.infer(image)
 
-        # append results to median queue
-        self.median_queue.append(output)
-
-        nq = len(self.median_queue)
-        if nq <= self.mid_idx:
-            # take last item in the queue
-            output = self.median_queue[-1]
-        elif nq == self.ks:
-            output = self.get_median()
-        else: # implies nq > self.mid_idx and nq < self.ks
-            # return nothing while the queue builds
+        self.enqueue(model_out)
+        median_out = self.get_next(keys=['bc'])
+        if median_out is None:
+            # nothing to return, we're building the queue
             return None
 
-        return output
+        return median_out['bc'] # (1, 2, H, W)
 
-class MultiGPUInferenceEngine(InferenceEngine):
-    def __init__(
-        self,
-        model,
-        thing_list,
-        label_divisor=1000,
-        stuff_area=64,
-        void_label=0,
-        nms_threshold=0.1,
-        nms_kernel=7,
-        confidence_thr=0.5,
-        **kwargs
-    ):
-        super().__init__(
-            model, thing_list, label_divisor, stuff_area,
-            void_label, nms_threshold, nms_kernel, confidence_thr,
-            **kwargs
-        )
-
-    def get_instance_cells(self, ctr_hmp, offsets):
-        # first find the object centers
-        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
-
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            return torch.zeros_like(ctr_hmp)
-
-        return group_pixels(ctr, offsets, step=1)
-
-    def get_panoptic_seg(self, sem, instance_cells):
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
-
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[None]).long()
-
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
-
-        return pan_seg
-
-class MultiScaleInferenceEngine:
+class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
     def __init__(
         self,
         base_model,
-        render_model,
+        render_models,
         thing_list,
-        median_kernel_size=3,
         label_divisor=1000,
         stuff_area=64,
         void_label=0,
         nms_threshold=0.1,
         nms_kernel=7,
         confidence_thr=0.5,
+        median_kernel_size=3,
         padding_factor=16,
         coarse_boundaries=True,
-        device='gpu',
         **kwargs
     ):
-        assert median_kernel_size % 2 == 1, "Kernel size must be odd integer!"
-
-        # set models to eval mode
-        self.base_model = base_model.eval()
-        self.render_model = render_model.eval()
-
-        if device == 'gpu' and torch.cuda.is_available():
-            # generically load onto any gpu
-            self.base_model = self.base_model.cuda()
-            self.render_model = self.render_model.cuda()
-            self.device = 'cuda'
-        elif torch.cuda.is_available():
-            self.base_model = self.base_model.to(device)
-            self.render_model = self.render_model.to(device)
-            self.device = device
-        else:
-            print(f'Using CPU, this may be slow.')
-            self.device = 'cpu'
-
-        self.thing_list = thing_list
+        super().__init__(
+            model=model, render_models=render_models, thing_list=thing_list,
+            label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
+            nms_threshold=nms_threshold, nms_kernel=nms_kernel,
+            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size
+        )
 
         self.padding_factor = padding_factor
         self.coarse_boundaries = coarse_boundaries
-
-        self.label_divisor = label_divisor
-        self.stuff_area = stuff_area
-        self.void_label = void_label
-        self.nms_threshold = nms_threshold
-        self.nms_kernel = nms_kernel
-        self.confidence_thr = confidence_thr
-
-        # median parameters
-        self.ks = median_kernel_size
-        self.median_queue = deque(maxlen=median_kernel_size)
-        self.mid_idx = (median_kernel_size - 1) // 2
-
-    def reset(self):
-        # reset the median queue
-        self.median_queue = deque(maxlen=self.ks)
-
-    def _harden_seg(self, sem):
-        if sem.size(1) > 1: # multiclass segmentation
-            sem = torch.argmax(sem, dim=1, keepdim=True)
-        else:
-            sem = (sem >= self.confidence_thr).long() # need integers
-
-        return sem
-
-    def get_median_sem_logits(self):
-        # each item in deque is shape (1, C, H, W)
-        # cat on batch dim and take the median
-        median_sem = torch.median(
-            torch.cat([output['sem_logits'] for output in self.median_queue], dim=0),
-            dim=0, keepdim=True
-        ).values
-
-        # (1, C, H, W)
-        return median_sem
 
     @torch.no_grad()
     def infer(self, image):
@@ -424,9 +348,9 @@ class MultiScaleInferenceEngine:
         if scale_factor >= 2:
             # each forward pass upsamples sem_logits by a factor of 2
             for _ in range(int(math.log(scale_factor, 2))):
-                sem_logits = self.render_model(sem_logits, coarse_sem_seg_logits, features)
+                sem_logits = self.render_models['sem_logits'](sem_logits, coarse_sem_seg_logits, features)
 
-        # apply classification activation and harden
+        # apply classification activation
         if sem_logits.size(1) > 1:
             sem = F.softmax(sem_logits, dim=1)
         else:
@@ -463,7 +387,7 @@ class MultiScaleInferenceEngine:
 
         return pan_seg
 
-    def empty_queue(self, upsampling=1):
+    def end(self, upsampling=1):
         # any items past self.mid_idx remaining
         # in the queue are processed and returned
         final_segs = []
@@ -493,22 +417,11 @@ class MultiScaleInferenceEngine:
         model_out['size'] = size
 
         # append results to median queue
-        self.median_queue.append(model_out)
-
-        nq = len(self.median_queue)
-        if nq <= self.mid_idx:
-            # take last item in the queue
-            median_out = self.median_queue[-1]
-        elif nq > self.mid_idx and nq < self.ks:
-            # return nothing while the queue builds
+        self.enqueue(model_out)
+        median_out = self.get_next(keys=['sem_logits'])
+        if median_out is None:
+            # nothing to return, we're building the queue
             return None
-        elif nq == self.ks:
-            # use the middle item in the queue
-            # with the median segmentation probs
-            median_out = self.median_queue[self.mid_idx]
-            median_out['sem_logits'] = self.get_median_sem_logits()
-        else:
-            raise Exception('Queue length cannot exceed maxlen!')
 
         # calculate the instance cells
         instance_cells = self.get_instance_cells(median_out['ctr_hmp'], median_out['offsets'], upsampling)
@@ -516,5 +429,50 @@ class MultiScaleInferenceEngine:
 
         # remove padding from the pan_seg
         pan_seg = pan_seg[..., :h, :w]
+
+        return pan_seg
+
+class PanopticDeepLabMultiGPU(PanopticDeepLabEngine):
+    def __init__(
+        self,
+        model,
+        thing_list,
+        label_divisor=1000,
+        stuff_area=64,
+        void_label=0,
+        nms_threshold=0.1,
+        nms_kernel=7,
+        confidence_thr=0.5,
+        **kwargs
+    ):
+        super().__init__(
+            model, thing_list, label_divisor, stuff_area,
+            void_label, nms_threshold, nms_kernel, confidence_thr,
+            **kwargs
+        )
+
+    def get_instance_cells(self, ctr_hmp, offsets):
+        # first find the object centers
+        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
+
+        # no objects, return zeros
+        if ctr.size(0) == 0:
+            return torch.zeros_like(ctr_hmp)
+
+        return group_pixels(ctr, offsets, step=1)
+
+    def get_panoptic_seg(self, sem, instance_cells):
+        # keep only label for instance classes
+        instance_seg = torch.zeros_like(sem)
+        for thing_class in self.thing_list:
+            instance_seg[sem == thing_class] = 1
+
+        # map object ids
+        instance_seg = (instance_seg * instance_cells[None]).long()
+
+        pan_seg = merge_semantic_and_instance(
+            sem, instance_seg, self.label_divisor, self.thing_list,
+            self.stuff_area, self.void_label
+        )
 
         return pan_seg

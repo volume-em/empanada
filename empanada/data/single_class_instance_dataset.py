@@ -14,33 +14,50 @@ __all__ = [
 ]
 
 class SingleClassInstanceDataset(_BaseDataset):
+    r"""Dataset for panoptic deeplab that supports a single instance
+    class only.
+
+    Args:
+        data_dir: Str. Directory containing image/mask pairs. Structure should
+        be data_dir -> source_datasets -> images/masks.
+
+        transforms: Albumentations transforms to apply to images and masks.
+
+        heatmap_sigma: Float. The standard deviation used for the gaussian
+        blurring filter when converting object centers to a heatmap.
+
+        weight_gamma: Float (0-1). Parameter than controls sampling of images
+        within different source_datasets based on the number of images
+        that that directory contains. Default is 0.3.
+
+    """
     def __init__(
         self,
         data_dir,
         transforms=None,
         heatmap_sigma=6,
         weight_gamma=0.3,
-        has_confidence=False
     ):
         super(SingleClassInstanceDataset, self).__init__(
-            data_dir, transforms, heatmap_sigma, weight_gamma, has_confidence
+            data_dir, transforms, weight_gamma
         )
+        self.heatmap_sigma = heatmap_sigma
 
     def __getitem__(self, idx):
         # transformed and paste example
         f = self.impaths[idx]
         image = cv2.imread(f, 0)
         mask = cv2.imread(self.mskpaths[idx], -1)
-        
+
         # add channel dimension if needed
         if image.ndim == 2:
             image = image[..., None]
-        
+
         if self.transforms is not None:
             output = self.transforms(image=image, mask=mask)
         else:
             output = {'image': image, 'mask': mask}
-        
+
         mask = output['mask']
         heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
         output['ctr_hmp'] = heatmap
@@ -50,10 +67,6 @@ class SingleClassInstanceDataset(_BaseDataset):
         # subdir is 1 before images dir
         subdir = fdirs[fdirs.index('images') - 1]
         output['fname'] = f
-
-        # confidences are 1-5, subtract 1 to have 0-4 (for cross entropy loss)
-        if self.has_confidence:
-            output['conf'] = self.confidences_dict[subdir][os.path.basename(f)] - 1
 
         # the last step is to binarize the mask for semantic segmentation
         if isinstance(mask, torch.Tensor):

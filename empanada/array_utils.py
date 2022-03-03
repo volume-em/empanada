@@ -3,6 +3,17 @@ import numpy as np
 import numba
 
 def take(array, indices, axis=0):
+    r"""Take indices from array along an axis
+
+    Args:
+        array: np.ndarray
+        indices: List of indices
+        axis: Int. Axis to take from.
+
+    Returns:
+        output: np.ndarray
+
+    """
     indices = tuple([
         slice(None) if n != axis else indices
         for n in range(array.ndim)
@@ -11,6 +22,14 @@ def take(array, indices, axis=0):
     return array[indices]
 
 def put(array, indices, value, axis=0):
+    r"""Put values at indices, inplace, along an axis.
+
+    Args:
+        array: np.ndarray
+        indices: List of indices
+        axis: Int. Axis to put along.
+
+    """
     indices = tuple([
         slice(None) if n != axis else indices
         for n in range(array.ndim)
@@ -28,9 +47,8 @@ def box_area(boxes):
 
     Returns:
         areas: Array of (n,) of each box area/volume.
-        
-    """
 
+    """
     ndim = boxes.shape[1] // 2
 
     dims = []
@@ -41,24 +59,21 @@ def box_area(boxes):
 
 
 def box_intersection(boxes1, boxes2=None):
-    """
-    Computes the pairwise intersection area/volume between two arrays of
+    r"""Computes the pairwise intersection area/volume between two arrays of
     bounding boxes.
 
-    Arguments:
-    -------------
-    boxes1: Array of size (n, 4) or (n, 6) where bounding box
-    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    Args:
+        boxes1: Array of size (n, 4) or (n, 6) where bounding box
+        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
-    boxes2: Array of size (m, 4) or (m, 6) where bounding box
-    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-    If None, then pairwise intersections are calculated between
-    all pairs of boxes in boxes1. Default, None.
+        boxes2: Array of size (m, 4) or (m, 6) where bounding box
+        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+        If None, then pairwise intersections are calculated between
+        all pairs of boxes in boxes1. Default, None.
 
     Returns:
-    -------------
-    intersections: Array of (n, m) defining pairwise area/volume
-    intersection between boxes.
+        intersections: Array of (n, m) defining pairwise area/volume
+        intersection between boxes.
 
     """
 
@@ -83,19 +98,15 @@ def box_intersection(boxes1, boxes2=None):
     return np.prod(intersect_dims, axis=0)
 
 def merge_boxes(box1, box2):
-    """
-    Merges two bounding boxes into 1 box that encloses both.
+    r"""Merges two bounding boxes into 1 box that encloses both.
 
-    Arguments:
-    -------------
-    box1: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-
-    box2: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    Args:
+        box1: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+        box2: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
     Returns:
-    -------------
-    merged_box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-    Defines the box that completely encloses box1 and box2.
+        merged_box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+        Defines the box that completely encloses box1 and box2.
 
     """
     n = len(box1)
@@ -113,22 +124,19 @@ def merge_boxes(box1, box2):
     return tuple(merged_box)
 
 def box_iou(boxes1, boxes2=None, return_intersection=False):
-    """
-    Calculates the pairwise intersection-over-union between sets of boxes.
+    r"""Calculates the pairwise intersection-over-union between sets of boxes.
 
-    Arguments:
-    -------------
-    boxes1: Array of size (n, 4) or (n, 6) where bounding box
-    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+    Args:
+        boxes1: Array of size (n, 4) or (n, 6) where bounding box
+        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
-    boxes2: Array of size (m, 4) or (m, 6) where bounding box
-    is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-    If None, then pairwise IoUs are calculated between
-    all pairs of boxes in boxes1. Default, None.
+        boxes2: Array of size (m, 4) or (m, 6) where bounding box
+        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+        If None, then pairwise IoUs are calculated between
+        all pairs of boxes in boxes1. Default, None.
 
     Returns:
-    -------------
-    ious: Array of (n, m) defining pairwise IoUs between boxes.
+        ious: Array of (n, m) defining pairwise IoUs between boxes.
 
     """
     # do pairwise box iou if no boxes2
@@ -148,18 +156,14 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
         return iou
 
 def rle_encode(indices):
-    """
-    Run length encodes an array of 1d indices.
+    r"""Run length encodes an array of 1d indices.
 
-    Arguments:
-    -------------
-    indices: An array of (n,) indices to run length encode.
+    Args:
+        indices: An array of (n,) indices to run length encode.
 
     Returns:
-    -------------
-    starts: Array of (l,) starting indices.
-
-    runs: Array of (l,) run lengths.
+        starts: Array of (l,) starting indices.
+        runs: Array of (l,) run lengths.
 
     """
     # where indices are not contiguous
@@ -180,18 +184,14 @@ def rle_encode(indices):
     return indices[changes], runs
 
 def rle_decode(starts, runs):
-    """
-    Decodes run length encoding arrays to an array of indices.
+    r"""Decodes run length encoding arrays to an array of indices.
 
-    Arguments:
-    -------------
-    starts: Array of (l,) starting indices.
-
-    runs: Array of (l,) run lengths.
+    Args:
+        starts: Array of (l,) starting indices.
+        runs: Array of (l,) run lengths.
 
     Returns:
-    -------------
-    indices: An array of (n,) decoded indices.
+        indices: An array of (n,) decoded indices.
 
     """
     ends = starts + runs
@@ -201,38 +201,30 @@ def rle_decode(starts, runs):
     return indices
 
 def rle_to_string(starts, runs):
-    """
-    Converts run length encoding to a string.
+    r"""Converts run length encoding to a string.
 
-    Arguments:
-    -------------
-    starts: Array of (l,) starting indices.
-
-    runs: Array of (l,) run lengths.
+    Args:
+        starts: Array of (l,) starting indices.
+        runs: Array of (l,) run lengths.
 
     Returns:
-    -------------
-    rle_string: String representation of a run length encoding.
-    Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
+        rle_string: String representation of a run length encoding.
+        Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
     """
 
     return ' '.join([f'{i} {r}' for i,r in zip(starts, runs)])
 
 def string_to_rle(encoding):
-    """
-    Converts run length encoding string to start and run arrays.
+    r"""Converts run length encoding string to start and run arrays.
 
-    Arguments:
-    -------------
-    rle_string: String representation of a run length encoding.
-    Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
+    Args:
+        rle_string: String representation of a run length encoding.
+        Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
     Returns:
-    -------------
-    starts: Array of (l,) starting indices.
-
-    runs: Array of (l,) run lengths.
+        starts: Array of (l,) starting indices.
+        runs: Array of (l,) run lengths.
 
     """
     encoding = np.array([int(i) for i in encoding.split(' ')])
@@ -240,21 +232,16 @@ def string_to_rle(encoding):
     return starts, runs
 
 def crop_and_binarize(mask, box, label):
-    """
-    Crop a mask from a bounding box and binarize the cropped mask
+    r"""Crop a mask from a bounding box and binarize the cropped mask
     where it's equal to the given label value.
 
-    Arguments:
-    -------------
-    mask: Array of (h, w) or (d, h, w) defining an image.
-
-    box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-
-    label: Label value to binarize within cropped mask.
+    Args:
+        mask: Array of (h, w) or (d, h, w) defining an image.
+        box: Bounding box tuple of (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+        label: Label value to binarize within cropped mask.
 
     Returns:
-    -------------
-    binary_cropped_mask: Boolean array of (h', w') or (d', h', w').
+        binary_cropped_mask: Boolean array of (h', w') or (d', h', w').
 
     """
     ndim = len(box) // 2
@@ -263,43 +250,36 @@ def crop_and_binarize(mask, box, label):
     return mask[slices] == label
 
 def mask_iou(mask1, mask2, return_intersection=False):
-    """
-    Calculates IoU score between two binary masks.
+    r"""Calculates IoU score between two binary masks.
 
-    Arguments:
-    -------------
-    mask1: Boolean array of (h, w) or (d, h, w) defining an image.
-
-    mask2: Boolean array of (h, w) or (d, h, w) defining an image.
+    Args:
+        mask1: Boolean array of (h, w) or (d, h, w) defining an image.
+        mask2: Boolean array of (h, w) or (d, h, w) defining an image.
+        return_intersection: Bool. If True, the intersection is returned.
 
     Returns:
-    -------------
-    iou_score: Float IoU score.
+        iou_score: Float IoU score.
 
     """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
     union = np.count_nonzero(np.logical_or(mask1, mask2))
     iou = intersection / union
-    
+
     if return_intersection:
         return iou, intersect
     else:
         return iou
 
 def mask_ioa(mask1, mask2):
-    """
-    Calculates IoA score between two binary masks.
+    r"""Calculates IoA score between two binary masks.
     The object area is derived from mask2.
 
-    Arguments:
-    -------------
-    mask1: Boolean array of (h, w) or (d, h, w) defining an image.
-
-    mask2: Boolean array of (h, w) or (d, h, w) defining an image.
+    Args:
+        mask1: Boolean array of (h, w) or (d, h, w) defining an image.
+        mask2: Boolean array of (h, w) or (d, h, w) defining an image.
 
     Returns:
-    -------------
-    ioa_score: Float IoA score.
+        ioa_score: Float IoA score.
 
     """
     intersection = np.count_nonzero(np.logical_and(mask1, mask2))
@@ -308,19 +288,17 @@ def mask_ioa(mask1, mask2):
 
 @numba.jit(nopython=True)
 def intersection_from_ranges(merged_runs, changes):
-    """
+    r"""
     Computes intersection from run ranges.
 
-    Arguments:
-    -------------
-    merged_runs: Integer array of (n, 2) where each element is a range of [start, end].
+    Args:
+        merged_runs: Integer array of (n, 2) where each element is a range of [start, end].
 
-    changes: Boolean array of (n,). True where the current range is from a different
-    source run length encoding than the next range.
+        changes: Boolean array of (n,). True where the current range is from a different
+        source run length encoding than the next range.
 
     Returns:
-    -------------
-    intersection: Integer, number of pixels/voxels that overlap in merged_runs.
+        intersection: Integer, number of pixels/voxels that overlap in merged_runs.
 
     """
     total_inter = 0
@@ -339,27 +317,18 @@ def intersection_from_ranges(merged_runs, changes):
 
     return total_inter
 
-def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
-    """
-    Calculates the IoU between two run length encodings.
+def rle_intersection(starts_a, runs_a, starts_b, runs_b):
+    r"""Calculates the intersection between two run length encodings.
 
-    Arguments:
-    -------------
-    starts_a: Array of (n,) where each element is the starting index of a run.
-    
-    runs_a: Array of (n,) where each element is the run length of a run.
-    
-    starts_b: Array of (m,) where each element is the starting index of a run.
-    
-    runs_b: Array of (m, ) where each element is the run length of a run.
+    Args:
+        starts_a: Array of (n,) where each element is the starting index of a run.
+        runs_a: Array of (n,) where each element is the run length of a run.
 
-    return_intersection: Integer, total number of overlapping pixels/voxels.
+        starts_b: Array of (m,) where each element is the starting index of a run.
+        runs_b: Array of (m, ) where each element is the run length of a run.
 
     Returns:
-    -------------
-    iou: Float, the intersection-over-union score.
-
-    intersection: If return_intersection is True, returns intersection.
+        intersection: The number of overlapping pixels/voxels between rles.
 
     """
     # convert from runs to ends
@@ -380,56 +349,55 @@ def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
 
     # calculate intersection and divide by union
     intersection = intersection_from_ranges(merged_runs, changes)
+    return intersection
+
+def rle_iou(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
+    r"""Calculates the IoU between two run length encodings.
+
+    Args:
+        starts_a: Array of (n,) where each element is the starting index of a run.
+        runs_a: Array of (n,) where each element is the run length of a run.
+
+        starts_b: Array of (m,) where each element is the starting index of a run.
+        runs_b: Array of (m, ) where each element is the run length of a run.
+
+        return_intersection: Bool. If True, the intersection is returned.
+
+    Returns:
+        iou: Float, the intersection-over-union score.
+        intersection: The number of overlapping pixels/voxels between rles.
+
+    """
+    # calculate intersection and divide by union
+    intersection = rle_intersection(starts_a, runs_a, starts_b, runs_b)
     union = runs_a.sum() + runs_b.sum() - intersection
-    
+
     if return_intersection:
         return intersection / union, intersection
     else:
         return intersection / union
-    
+
 def rle_ioa(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
-    """
-    Calculates the IoU between two run length encodings.
+    r"""Calculates the IoA between two run length encodings.
 
-    Arguments:
-    -------------
-    starts_a: Array of (n,) where each element is the starting index of a run.
-    
-    runs_a: Array of (n,) where each element is the run length of a run.
-    
-    starts_b: Array of (m,) where each element is the starting index of a run.
-    
-    runs_b: Array of (m, ) where each element is the run length of a run.
+    Args:
+        starts_a: Array of (n,) where each element is the starting index of a run.
+        runs_a: Array of (n,) where each element is the run length of a run.
 
-    return_intersection: Integer, total number of overlapping pixels/voxels.
+        starts_b: Array of (m,) where each element is the starting index of a run.
+        runs_b: Array of (m, ) where each element is the run length of a run.
+
+        return_intersection: Bool. If True, the intersection is returned.
 
     Returns:
-    -------------
-    iou: Float, the intersection-over-union score.
-
-    intersection: If return_intersection is True, returns intersection.
+        ioa: Float, the intersection-over-area score.
+        intersection: The number of overlapping pixels/voxels between rles.
 
     """
-    # convert from runs to ends
-    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
-    ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-
-    # merge and sort the ranges from two rles
-    merged_runs = np.concatenate([ranges_a, ranges_b], axis=0)
-    merged_ids = np.concatenate(
-        [np.repeat([0], len(ranges_a)), np.repeat([1], len(ranges_b))]
-    )
-    sort_indices = np.argsort(merged_runs, axis=0, kind='stable')[:, 0]
-
-    # find where the rle ids change between merged runs
-    merged_runs = merged_runs[sort_indices]
-    merged_ids = merged_ids[sort_indices]
-    changes = merged_ids[:-1] != merged_ids[1:]
-
     # calculate intersection and divide by union
-    intersection = intersection_from_ranges(merged_runs, changes)
+    intersection = rle_intersection(starts_a, runs_a, starts_b, runs_b)
     area = runs_b.sum()
-    
+
     if return_intersection:
         return intersection / area, intersection
     else:
@@ -437,21 +405,18 @@ def rle_ioa(starts_a, runs_a, starts_b, runs_b, return_intersection=False):
 
 @numba.jit(nopython=True)
 def split_range_by_votes(running_range, num_votes, vote_thr=2):
-    """
-    Splits a range into two new ranges based on the votes for each index.
+    r"""Splits a range into two new ranges based on the votes for each index.
 
-    Arguments:
-    -------------
-    running_range: List of 2. First element is the run start and second element is run end.
+    Args:
+        running_range: List of 2. First element is the run start and second element is run end.
 
-    num_votes: List of n. Each element is the number of votes for a particular index
-    within the range(start, end).
+        num_votes: List of n. Each element is the number of votes for a particular index
+        within the range(start, end).
 
-    vote_thr: Minimum number of votes for an index to be kept in the running range.
+        vote_thr: Minimum number of votes for an index to be kept in the running range.
 
     Returns:
-    -------------
-    split_voted_ranges: List of new ranges with indices that had too few votes removed.
+        split_voted_ranges: List of new ranges with indices that had too few votes removed.
 
     """
     # the running range may be split at places with
@@ -482,7 +447,18 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
 
 @numba.jit(nopython=True)
 def extend_range(range1, range2, num_votes):
-    """
+    r"""Merges together two overlapping runs and updates the number
+    of votes at each index within the range.
+
+    Args:
+        range1: Tuple or List of (start_i, end_i) as integers.
+        range2: Tuple or List of (start_j, end_j) as integers.
+        num_votes: List of integers. Stores the number of votes at each
+        index in range1.
+
+    Returns:
+        extended_range: List of (start_i, end_j) as integers.
+        extended_num_votes: Updated list of num_votes to cover the new range.
 
     """
     # difference between starts is location
@@ -511,6 +487,20 @@ def extend_range(range1, range2, num_votes):
 
 @numba.jit(nopython=True)
 def rle_voting(ranges, vote_thr=2):
+    r"""Finds overlapping ranges and tabulates the number
+    of votes at each index within those ranges. Outputs
+    ranges in which all indices had vote_thr or more votes.
+
+    Args:
+        ranges: np.ndarray of (n, 2) possibly overlapping ranges.
+        Each range is defined by [start_idx, end_idx].
+
+    Returns:
+        voted_ranges: np.ndarray of (m, 2) non-overlapping ranges.
+        All indices in the ranges had more than (or equal to) vote_thr
+        votes in ranges.
+
+    """
     # ranges that past the vote_thr
     voted_ranges = []
 
@@ -552,6 +542,16 @@ def rle_voting(ranges, vote_thr=2):
 
 @numba.jit(nopython=True)
 def join_ranges(ranges):
+    r"""Joins overlapping ranges into non-overlapping ranges.
+
+    Args:
+        ranges: np.ndarray of (n, 2) possibly overlapping ranges.
+        Each range is defined by [start_idx, end_idx].
+
+    Returns:
+        joined: np.ndarray of (m, 2) non-overlapping ranges.
+
+    """
     joined = []
     running_range = None
     for range1,range2 in zip(ranges[:-1], ranges[1:]):
@@ -572,6 +572,24 @@ def join_ranges(ranges):
     return joined
 
 def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
+    r"""Joins possible overlapping run length encodings into
+    a single set of non-overlapping rles.
+
+    If starts_b and runs_b are none, then it's assumed that starts_a and
+    runs_a contain overlaps indices.
+
+    Args:
+        starts_a: Array of (n,) where each element is the starting index of a run.
+        runs_a: Array of (n,) where each element is the run length of a run.
+
+        starts_b: Default None. Array of (m,) starting indices.
+        runs_b: Default None. Array of (m,) rung lengths.
+
+    Returns:
+        merged_starts: Array of (l,) starting indices
+        merged_runs: Array of (l,) run lengths
+
+    """
     # convert from runs to ranges
     if starts_b is not None and runs_b is not None:
         ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
@@ -579,7 +597,7 @@ def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
         merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
     else:
         merged_ranges = np.stack([starts_a, starts_a + runs_a], axis=1)
-    
+
     sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
     merged_ranges = merged_ranges[sort_indices]
 

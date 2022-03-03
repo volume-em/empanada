@@ -12,7 +12,7 @@ is created.
 .. figure:: ../_static/model_output.png
     :width: 800px
     :align: center
-    :alt: alternate text
+    :alt: Models
     :figclass: align-center
 
     EM image (left) passes through the model and outputs, in order,
@@ -21,7 +21,6 @@ is created.
 
 
 To create a model with a standard ResNet50 backbone::
-	
+
 	import empanada.models as em
 	model = em.PanopticDeepLabPR(encoder='resnet50')
-

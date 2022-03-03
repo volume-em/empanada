@@ -52,6 +52,8 @@ if __name__ == "__main__":
 
     # validate parameters
     model_arch = config['MODEL']['arch']
+    engine_name = config['INFERENCE']['engine']
+
     assert model_arch in archs, f"Unrecognized model architecture {model_arch}."
     filter_names = []
     filter_kwargs = []
@@ -64,7 +66,7 @@ if __name__ == "__main__":
 
     # setup model and engine class
     model = models.__dict__[model_arch](**config['MODEL'])
-    engine_cls = engines.MedianInferenceEngineBC
+    engine_cls = engines.__dict__[engine_name]
 
     # load model state
     state = torch.load(weight_path, map_location='cpu')
@@ -106,7 +108,7 @@ if __name__ == "__main__":
         dataset = VolumeDataset(volume, axis, eval_tfs, scale=1)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
                                 pin_memory=True, drop_last=False, num_workers=8)
-        
+
         stack = np.zeros((2, *shape), dtype=np.uint8)
 
         fill_index = 0
@@ -123,7 +125,7 @@ if __name__ == "__main__":
                 # remove padding and unit dimensions
                 bc_seg = bc_seg[0, :, :h, :w].cpu().numpy() # (2, H, W)
                 bc_seg = (coeff * bc_seg).astype(np.uint8)
-                
+
                 # store the seg and contours
                 put(stack, fill_index, bc_seg, axis+1)
                 fill_index += 1
@@ -134,33 +136,33 @@ if __name__ == "__main__":
                 # remove padding and unit dimensions
                 bc_seg = bc_seg[0, :, :h, :w].cpu().numpy() # (2, H, W)
                 bc_seg = (coeff * bc_seg).astype(np.uint8)
-                
+
                 # store the seg and contours
                 put(stack, fill_index, bc_seg, axis+1)
                 fill_index += 1
-                
+
         # store the segmentation stack
         axis_stacks[axis_name] = stack
-        
+
     # add the axis stacks together
     print('Summing stacks...')
     orthostack = sum(list(axis_stacks.values()))
-    
+
     # store the segmentation
     data.create_dataset(
         f'{config_name}_{class_name}_bc_pred', data=orthostack,
         overwrite=True, chunks=(1, None, None)
     )
-    
+
     # apply bc watershed
     print('Running watershed...')
     instance_seg = bc_watershed(orthostack, **config['INFERENCE']['watershed_params'])
-    
+
     data.create_dataset(
         f'{config_name}_{class_name}_pred', data=instance_seg,
         overwrite=True, chunks=(1, None, None)
     )
-    
+
     # only supports a single class
     print('Running tracking...')
     label_divisor = config['INFERENCE']['watershed_params']['label_divisor']
@@ -168,7 +170,7 @@ if __name__ == "__main__":
     for index2d,seg2d in tqdm(enumerate(instance_seg), total=len(instance_seg)):
         rle_seg = pan_seg_to_rle_seg(seg2d, [1], label_divisor, [1], force_connected=False)
         pred_tracker.update(rle_seg[1], index2d)
-        
+
     pred_tracker.finish()
     pred_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
 

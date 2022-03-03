@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from empanada.data import VolumeDataset
-from empanada.inference import engines
+from empanada.inference.engines import PanopticDeepLabRenderEngine3d
 from empanada.inference import filters
 from empanada.inference.matcher import RLEMatcher
 from empanada.inference.tracker import InstanceTracker
@@ -180,8 +180,9 @@ if __name__ == "__main__":
             out = render_model(out['sem_logits'], out['sem_logits'], out['semantic_x'])
 
         # create the inference engine
-        inference_engine = engines.MultiScaleInferenceEngine(
-            base_model, render_model,
+        render_models = {'sem_logits': render_model}
+        inference_engine = PanopticDeepLabRenderEngine3d(
+            base_model, render_models,
             thing_list=thing_list,
             median_kernel_size=args.qlen,
             label_divisor=label_divisor,
@@ -189,8 +190,7 @@ if __name__ == "__main__":
             nms_kernel=args.nms_kernel,
             confidence_thr=args.seg_thr,
             padding_factor=config['padding_factor'],
-            coarse_boundaries=not args.fine_boundaries,
-            device=device
+            coarse_boundaries=not args.fine_boundaries
         )
 
         # create a separate matcher for each thing class

@@ -88,6 +88,8 @@ if __name__ == "__main__":
 
     # validate parameters
     model_arch = config['MODEL']['arch']
+    engine_name = config['INFERENCE']['engine']
+
     assert model_arch in archs, f"Unrecognized model architecture {model_arch}."
     filter_names = []
     filter_kwargs = []
@@ -100,7 +102,7 @@ if __name__ == "__main__":
 
     # setup model and engine class
     model = models.__dict__[model_arch](**config['MODEL'])
-    engine_cls = engines.MedianInferenceEngine
+    engine_cls = engines.__dict__[engine_name]
 
     # load model state
     state = torch.load(weight_path, map_location='cpu')
@@ -247,11 +249,7 @@ if __name__ == "__main__":
             for filt,kwargs in zip(filter_names, filter_kwargs):
                 for tracker in trackers[axis_name]:
                     filters.__dict__[filt](tracker, **kwargs)
-                    
-    import pickle
-    with open('salgland_trackers.pkl', mode='wb') as handle:
-        pickle.dump(trackers, handle)
-                    
+
     # create the final instance segmentations
     for class_id, class_name in zip(config['INFERENCE']['labels'], config['DATASET']['class_names']):
         # get the relevant trackers for the class_label
