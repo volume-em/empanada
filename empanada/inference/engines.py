@@ -1,8 +1,6 @@
 import math
 import torch
 import torch.nn.functional as F
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 
 from empanada.inference.postprocess import (
     factor_pad, find_instance_center, group_pixels,
