@@ -1,13 +1,40 @@
 empanada-napari
 -----------------
 
-Models trained in empanada can be exported for use in Napari. To get started, install conda and napari
-following the official `napari installation instructions <https://napari.org/tutorials/fundamentals/installation>`_.
-
 Installation
 ==============
 
-After confirming that napari runs, the easiest way to install empanada-napari is directly in napari.
+Napari works best when installed with `conda <https://docs.conda.io/projects/conda/en/latest/>`_.
+
+**Note: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
+
+  1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
+
+  2. Download the correct installer for your OS (Mac, Linux, Windows).
+
+  3. After installing `conda`, open a new terminal or command prompt window.
+
+  4. Verify conda installed correctly with::
+
+      $ conda --help
+
+    If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
+    the terminal or command prompt window. If that doesn't work then
+    see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
+    or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
+
+  5. Install napari with pip::
+
+      $ python -m pip install "napari[all]"
+
+  6. To verify installation, run::
+
+      $ napari
+
+For alternative and more detailed installation instructions, see the
+`official napari installation tutorial <https://napari.org/tutorials/fundamentals/installation>`_.
+
+From here the easiest way to install empanada-napari is directly in napari.
 
 1. From the “Plugins” menu, select “Install/Uninstall Plugins...”.
 
@@ -25,7 +52,10 @@ After confirming that napari runs, the easiest way to install empanada-napari is
 
 3. Click the “Install” button next to the input bar.
 
-Alternatively, the plugin can be installed with pip::
+If installation was successful you should see `empanada-napari` in the Plugins menu. If you don't
+see it try restarting napari.
+
+If this fails, try installing the plugin with pip::
 
 	$ pip install empanada-napari
 
