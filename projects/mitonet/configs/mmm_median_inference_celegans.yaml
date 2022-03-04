@@ -7,7 +7,6 @@ engine_params:
   
 consensus_params:
   pixel_vote_thr: 1
-  cluster_iou_thr: 0.75
 
 # simple object size/shape filters
 filters:

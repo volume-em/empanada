@@ -281,7 +281,7 @@ class BCEngine3d(BCEngine, _MedianQueue):
 class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
     def __init__(
         self,
-        base_model,
+        model,
         render_models,
         thing_list,
         label_divisor=1000,
@@ -307,7 +307,7 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
 
     @torch.no_grad()
     def infer(self, image):
-        return self.base_model(image)
+        return self.model(image)
 
     @torch.no_grad()
     def get_instance_cells(self, ctr_hmp, offsets, upsampling=1):
@@ -413,7 +413,7 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
         # move image to same device as the model
         h, w = size
         image = factor_pad(image, self.padding_factor)
-        image = image.to(self.device, non_blocking=True)
+        image = self.to_model_device(image)
 
         # infer labels
         model_out = self.infer(image)

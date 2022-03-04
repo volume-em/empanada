@@ -46,12 +46,17 @@ def parse_args():
                         help='Minimum IoU score between objects in adjacent slices for label stiching')
     parser.add_argument('-ioa-thr', type=float, dest='ioa_thr', metavar='ioa_thr', default=0.25,
                         help='Minimum IoA score between objects in adjacent slices for label merging')
+    parser.add_argument('-pixel-vote-thr', type=int, dest='pixel_vote_thr', metavar='pixel_vote_thr', default=2,
+                        choices=[1, 2, 3], help='Votes necessary per voxel when using orthoplane inference')
+    parser.add_argument('-cluster-iou-thr', type=float, dest='cluster_iou_thr', metavar='cluster_iou_thr', default=0.75,
+                        help='Minimum IoU to group together instances after orthoplane inference')
     parser.add_argument('-min-size', type=int, dest='min_size', metavar='min_size', default=500,
                         help='Minimum object size, in voxels, in the final 3d segmentation')
     parser.add_argument('-min-span', type=int, dest='min_span', metavar='min_span', default=4,
                         help='Minimum number of consecutive slices that object must appear on in final 3d segmentation')
     parser.add_argument('-downsample-f', type=int, dest='downsample_f', metavar='dowsample_f', default=1,
                         help='Factor by which to downsample images before inference, must be log base 2.')
+    parser.add_argument('--one-view', action='store_true', help='One to allow instances seen in just 1 stack through to orthoplane consensus.')
     parser.add_argument('--fine-boundaries', action='store_true', help='Whether to calculate cells on full resolution image.')
     parser.add_argument('--use-cpu', action='store_true', help='Whether to force inference to run on CPU.')
     parser.add_argument('--save-panoptic', action='store_true', help='Whether to save raw panoptic segmentation for each stack.')
@@ -232,7 +237,7 @@ if __name__ == "__main__":
                 rle_seg = pan_seg_to_rle_seg(pan_seg, config['labels'], label_divisor, thing_list, force_connected=True)
                 queue.put(rle_seg)
 
-        final_segs = inference_engine.empty_queue()
+        final_segs = inference_engine.end()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
                 pan_seg = pan_seg.squeeze().cpu().numpy() # remove padding
@@ -300,7 +305,9 @@ if __name__ == "__main__":
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
 
             # fill with the consensus instances
-            consensus_tracker.instances = merge_objects_from_trackers(class_trackers)
+            consensus_tracker.instances = merge_objects_from_trackers(
+                class_trackers, args.pixel_vote_thr, args.cluster_iou_thr, args.one_view
+            )
 
             # apply filters
             filters.remove_small_objects(consensus_tracker, min_size=args.min_size)
@@ -330,7 +337,6 @@ if __name__ == "__main__":
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
 
-    """
     # run evaluation
     consensus_tracker.write_to_json(os.path.join(args.volume_path, f'{class_name}_pred.json'))
     semantic_metrics = {'IoU': iou}
@@ -347,4 +353,3 @@ if __name__ == "__main__":
 
         for k, v in results.items():
             print(k, v)
-    """
