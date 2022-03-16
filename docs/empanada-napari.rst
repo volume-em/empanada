@@ -1,12 +1,19 @@
 empanada-napari
 -----------------
 
+.. image:: _static/demo.gif
+    :width: 1000px
+    :align: center
+    :alt: 2D inference demo
+
 Installation
 ==============
 
-Napari works best when installed with `conda <https://docs.conda.io/projects/conda/en/latest/>`_.
+Napari is still considered alpha phase software and may not install correctly on the
+first attempt, if that happens please open an issue `with us here <https://github.com/volume-em/empanada-napari/issues>`_.
+Or reach out to the napari developers directly `here <https://github.com/napari/napari/issues>`_.
 
-**Note: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
+**IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
 
   1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
 
@@ -34,6 +41,7 @@ Napari works best when installed with `conda <https://docs.conda.io/projects/con
 For alternative and more detailed installation instructions, see the
 `official napari installation tutorial <https://napari.org/tutorials/fundamentals/installation>`_.
 
+
 From here the easiest way to install empanada-napari is directly in napari.
 
 1. From the “Plugins” menu, select “Install/Uninstall Plugins...”.
@@ -53,7 +61,7 @@ From here the easiest way to install empanada-napari is directly in napari.
 3. Click the “Install” button next to the input bar.
 
 If installation was successful you should see `empanada-napari` in the Plugins menu. If you don't
-see it try restarting napari.
+see, it try restarting napari.
 
 If this fails, try installing the plugin with pip::
 
@@ -103,6 +111,9 @@ Parameters
 
 **Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
 Note that current only Point Rend enabled models can be imported.
+
+On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
+This module only applies for registering custom or finetuned models.
 
 Note that if the 2D or 3D Inference module have already been opened then imported models will not
 appear in the available models list. Restarting napari with update it. Currently deleting

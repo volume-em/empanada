@@ -33,7 +33,7 @@ Install Empanada from PyPI::
 
     $ pip install empanada-dl
 
-To install the latest development version of Empanada, you can use pip from GitHub::
+To install the latest development version of empanada, you can use pip from GitHub::
 
     $ pip install git+https://github.com/volume-em/empanada.git
 
