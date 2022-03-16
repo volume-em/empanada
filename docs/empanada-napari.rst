@@ -73,16 +73,16 @@ Modules Overview
 There are three modules related to automatic segmentation and three for manual cleanup.
 For segmentation there are:
 
-  1. Register new model
-    * Import a model that was exported from empanada.
-    * All model files are stored in a special directory `~/.empanada`
-
-  2. 2D Inference (Parameter Testing)
+  1. 2D Inference (Parameter Testing)
     * Runs model inference on 2D EM images
     * Runs model inference on an arbitrary 2D slice of a 3D dataset. Works for xy, xz and yz planes
 
-  3. 3D Inference
+  2. 3D Inference
     * Implements stack and ortho-plane inference functionality
+
+  3. Register new model
+    * Import a model that was exported from empanada.
+    * All model files are stored in a special directory `~/.empanada`
 
 
 Manual cleanup modules are:
@@ -95,31 +95,6 @@ Manual cleanup modules are:
 
   3. Delete labels
     * Allows the removal of selected labels.
-
-Register new model
-====================
-
-.. image:: _static/register_new_model.png
-  :align: center
-  :width: 500px
-  :alt: Dialog for the register new model module.
-
-Parameters
-^^^^^^^^^^^^^^^^
-
-**Model name:** User chosen name to use for this model throughout the other plugin modules.
-
-**Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
-Note that current only Point Rend enabled models can be imported.
-
-On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
-This module only applies for registering custom or finetuned models.
-
-Note that if the 2D or 3D Inference module have already been opened then imported models will not
-appear in the available models list. Restarting napari with update it. Currently deleting
-models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
-from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
-`{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
 
 2D Inference (Parameter Testing)
 ==================================
@@ -291,13 +266,38 @@ The **Voxel Vote Thr Out of 3** and **Permit detections found in 1 stack into co
 for when there are too many false negatives after ortho-plane segmentation. Decreasing the voxel
 vote threshold to 1 will fill in more voxels but should not increase the number of false positive detections
 very much. This is because the voxel vote threshold only affects detections that were picked up in more than 1 of the
-inference stacks. Allow minority clusters, on the other hand, can increase false positives because
-it will allow detections picked up by just a single view into the consensus segmentation.
+inference stacks. "Permit detections found in 1 stack into consensus", on the other hand, can increase false positives because
+it will allow detections picked up by just a single stack into the consensus segmentation (what a well named parameter!).
 
 Final note. When running ortho-plane inference it's recommended to also **Return xy, xz, yz stacks**
 segmentations. In some cases, inference results are better on just a single plane (i.e., xz)
 than they are in the consensus. Returning the intermediate panoptic results for each stack
 will help you to decide whether that applies to your dataset or not.
+
+Register new model
+====================
+
+.. image:: _static/register_new_model.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the register new model module.
+
+Parameters
+^^^^^^^^^^^^^^^^
+
+**Model name:** User chosen name to use for this model throughout the other plugin modules.
+
+**Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
+Note that current only Point Rend enabled models can be imported.
+
+On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
+This module only applies for registering custom or finetuned models.
+
+Note that if the 2D or 3D Inference module have already been opened then imported models will not
+appear in the available models list. Restarting napari with update it. Currently deleting
+models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
+from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
+`{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
 
 
 Split, Merge, Delete Labels
@@ -339,5 +339,5 @@ Here's example usage for split and merging objects.
     instance is merged.
 
 
-For the delete module a point is placed over the object to be deleted. That object is then
+For the delete module, a point is placed on the object to be deleted. That object is then
 removed entirely from the segmentation.
