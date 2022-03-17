@@ -1,6 +1,6 @@
 DATASET:
   dataset_name: "Baselines"
-  class_names: [ "mito" ]
+  class_names: { 1: "mito" }
   labels: [ 1 ]
   thing_list: [ 1 ]
   norms: { mean: 0.508979, std: 0.148561 }
@@ -32,9 +32,9 @@ MODEL:
 TRAIN:
   run_name: "Panoptic DeepLab BC Baseline"
   # image and model directories
-  train_dir: "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
-  additional_train_dirs:
-    - "/data/IASEM/conradrw/data/panoptic/tem/"
+  train_dir: "/data/IASEM/conradrw/data/panoptic/tem/"
+  additional_train_dirs: 
+    - "/data/IASEM/conradrw/data/panoptic/pre_zooniverse_train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch0/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch1/train"
     - "/data/IASEM/conradrw/data/panoptic/zooniverse_staging/batch2a/train"
