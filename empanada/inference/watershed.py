@@ -93,7 +93,7 @@ def mask_watershed(mask, markers, connectivity=1):
 
     # pad and ravel mask
     pad_width = [(p, p) for p in offset]
-    mask = np.pad(mask, pad_width, mode='constant').ravel()
+    mask = np.pad(mask, pad_width, mode='constant')
     output = np.pad(markers, pad_width, mode='constant')
 
     flat_neighborhood = _offsets_to_raveled_neighbors(

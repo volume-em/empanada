@@ -5,6 +5,7 @@ axes: [ 'xy', 'xz', 'yz' ]
 labels: [ 1 ]
 
 # parameters for the inference engine
+engine: "BCEngine3d"
 engine_params:
   median_kernel_size: 9
 
@@ -15,4 +16,5 @@ watershed_params:
   seed_thres: 1000
   min_size: 3000
   label_divisor: 1000
+  use_mask_wts: True
 

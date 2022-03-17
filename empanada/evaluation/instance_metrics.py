@@ -1,5 +1,58 @@
 import numpy as np
 
+def ap(
+    gt_matched,
+    gt_unmatched,
+    pred_matched,
+    pred_unmatched,
+    matched_ious,
+    iou_thr=0.5
+):
+    r"""Calculates Average Precision score.
+
+    Args:
+        gt_matched: Array of object labels in ground truth that were matched
+        at any IoU threshold.
+
+        gt_unmatched: Array of object labels in ground truth that were
+        unmatched.
+
+        pred_matched: Array of object labels in prediction that were matched
+        at any IoU threshold
+
+        pred_unmatched: Array of object labels in prediction that were
+        unmatched.
+
+        matched_ious: Array of IoU scores for all pairs of matches between
+        ground truth and prediction.
+
+        iou_threshold: Float. The minimum IoU score between instances
+        to count as a true positive.
+
+    return:
+        AP: Float. The AP@iou_threshold score.
+
+    """
+    # all unmatched gt are fn
+    fn = len(gt_unmatched)
+    # all unmatched pred are fp
+    fp = len(pred_unmatched)
+
+    # matches can be tp, fp or fn depending
+    # on the iou score
+    tp = np.count_nonzero(matched_ious >= iou_thr)
+
+    # add 1 fp and 1 fn for every match that fails
+    failed_matches = np.count_nonzero(matched_ious < iou_thr)
+    fp += failed_matches
+    fn += failed_matches
+
+    if tp + fp + fn == 0:
+        # by convention, AP is 1 for empty masks
+        return 1
+
+    return tp / (tp + fp + fn)
+
 def f1(
     gt_matched,
     gt_unmatched,

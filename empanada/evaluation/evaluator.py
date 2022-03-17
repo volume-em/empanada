@@ -111,10 +111,11 @@ class Evaluator:
 
         # unpack all into 1 dictionary
         results_dict = {**semantic_results, **instance_results, **panoptic_results}
-        if return_instances:
+        if return_instances and (self.instance_metrics is not None or self.panoptic_metrics is not None):
             instances_dict = {
                 'gt_matched': gt_matched, 'pred_matched': pred_matched,
                 'gt_unmatched': gt_unmatched, 'pred_unmatched': pred_unmatched,
+                'matched_ious': matched_ious
             }
             return results_dict, instances_dict
         else:

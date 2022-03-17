@@ -4,4 +4,4 @@ DATASET:
   dataset_name: "MitoMegaMix_InstanceDecoder"
     
 MODEL:
-  ins_decoder: True
+  ins_decoder: False

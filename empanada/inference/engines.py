@@ -249,13 +249,13 @@ class BCEngine(_Engine):
         assert image.ndim == 4 and image.size(0) == 1
         return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-class BCEngine3d(BCEngine, _MedianQueue):
+class BCEngine3d(_MedianQueue, BCEngine):
     def __init__(self, model, median_kernel_size=3, **kwargs):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
 
     def end(self):
         # list of remaining segs (1, 2, H, W)
-        return list(self.median_queue)[self.mid_idx + 1:]
+        return [med['bc'] for med in list(self.median_queue)[self.mid_idx + 1:]]
 
     def __call__(self, image):
         # check that image is 4d (N, C, H, W) and has a
