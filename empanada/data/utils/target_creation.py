@@ -77,57 +77,42 @@ def heatmap_and_offsets(sl2d, heatmap_sigma=6):
 
     return heatmap, offsets
 
-def seg_to_instance_bd(
-    seg: np.ndarray,
-    tsz_h: int = 1,
-    do_bg: bool = True,
-    do_convolve: bool = True
-) -> np.ndarray:
+def seg_to_instance_bd(seg, heatmap_sigma):
     r"""Generate instance contour map from segmentation masks.
 
     Args:
         seg (np.ndarray): segmentation map (3D array is required).
-        tsz_h (int, optional): size of the dilation struct. Defaults: 1
-        do_bg (bool, optional): generate contour between instances and background. Defaults: True
-        do_convolve (bool, optional): convolve with edge filters. Defaults: True
+        heatmap_sigma (float): Gaussian sigma value to use for blurring the contours
     Returns:
-        np.ndarray: binary instance contour map.
+        np.ndarray: instance contour heatmap.
 
-    Copied from: https://github.com/zudi-lin/pytorch_connectomics/blob/72d6a0fc75a3275f79fa96c90605abb814bd7a97/connectomics/data/utils/data_segmentation.py
+    Copied with modification: 
+    https://github.com/zudi-lin/pytorch_connectomics/blob/72d6a0fc75a3275f79fa96c90605abb814bd7a97/connectomics/data/utils/data_segmentation.py
 
     """
-    if do_bg == False:
-        do_convolve = False
 
     sz = seg.shape
-    bd = np.zeros(sz, np.uint8)
-    tsz = tsz_h * 2 + 1
+    bd = np.zeros(sz, np.float32)
 
-    if do_convolve:
-        sobel = [1, 0, -1]
-        sobel_x = np.array(sobel).reshape(3, 1)
-        sobel_y = np.array(sobel).reshape(1, 3)
-        for z in range(sz[0]):
-            slide = seg[z]
-            edge_x = convolve2d(slide, sobel_x, 'same', boundary='symm')
-            edge_y = convolve2d(slide, sobel_y, 'same', boundary='symm')
-            edge = np.maximum(np.abs(edge_x), np.abs(edge_y))
-            contour = (edge != 0).astype(np.uint8)
-            bd[z] = dilation(contour, np.ones((tsz, tsz), dtype=np.uint8))
-
-        return bd
-
-    mm = seg.max()
+    # edge wfilters
+    sobel = [1, 0, -1]
+    sobel_x = np.array(sobel).reshape(3, 1)
+    sobel_y = np.array(sobel).reshape(1, 3)
+    
     for z in range(sz[0]):
-        patch = im2col(
-            np.pad(seg[z], ((tsz_h, tsz_h), (tsz_h, tsz_h)), 'reflect'), [tsz, tsz])
-        p0 = patch.max(axis=1)
-        if do_bg:  # at least one non-zero seg
-            p1 = patch.min(axis=1)
-            bd[z] = ((p0 > 0)*(p0 != p1)).reshape(sz[1:])
-        else:  # between two non-zero seg
-            patch[patch == 0] = mm+1
-            p1 = patch.min(axis=1)
-            bd[z] = ((p0 != 0)*(p1 != 0)*(p0 != p1)).reshape(sz[1:])
+        slide = seg[z]
+        edge_x = convolve2d(slide, sobel_x, 'same', boundary='symm')
+        edge_y = convolve2d(slide, sobel_y, 'same', boundary='symm')
+        edge = np.maximum(np.abs(edge_x), np.abs(edge_y))
+        contour = (edge != 0).astype(np.float32)
+        heatmap = cv2.GaussianBlur(contour, ksize=(0, 0),
+                           sigmaX=heatmap_sigma, sigmaY=heatmap_sigma,
+                           borderType=cv2.BORDER_CONSTANT)
+
+        hmax = heatmap.max()
+        if hmax > 0:
+            heatmap = heatmap / hmax
+
+        bd[z] = heatmap
 
     return bd

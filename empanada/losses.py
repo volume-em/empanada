@@ -168,30 +168,30 @@ class BCLoss(nn.Module):
     """
     def __init__(
         self,
+        mse_weight=200,
         pr_weight=1,
         top_k_percent=0.15
     ):
         super(BCLoss, self).__init__()
+        self.mse_weight = mse_weight
         self.ce_loss = BootstrapCE(top_k_percent)
         self.pr_loss = PointRendLoss()
         self.pr_weight = pr_weight
+        self.mse_loss = HeatmapMSE()
 
     def forward(self, output, target):
         # mask losses
         sem_ce = self.ce_loss(output['sem_logits'], target['sem'])
-        cnt_ce = self.ce_loss(output['cnt_logits'], target['cnt'])
+        cnt_mse = self.mse_loss(output['cnt_hmp'], target['cnt_hmp'])
 
-        aux_loss = {'sem_ce': sem_ce.item(), 'cnt_ce': cnt_ce.item()}
-        total_loss = sem_ce + cnt_ce
+        aux_loss = {'sem_ce': sem_ce.item(), 'cnt_mse': cnt_mse.item()}
+        total_loss = sem_ce + self.mse_weight * cnt_mse
 
         # add the point rend losses from both
         if 'sem_points' in output:
             sem_pr_ce = self.pr_loss(output['sem_points'], output['sem_point_coords'], target['sem'])
-            cnt_pr_ce = self.pr_loss(output['cnt_points'], output['cnt_point_coords'], target['cnt'])
-
+            total_loss += self.pr_weight * sem_pr_ce
             aux_loss['sem_pr_ce'] = sem_pr_ce.item()
-            aux_loss['cnt_pr_ce'] = cnt_pr_ce.item()
-            total_loss += self.pr_weight * (sem_pr_ce + cnt_pr_ce)
 
         aux_loss['total_loss'] = total_loss.item()
         return total_loss, aux_loss

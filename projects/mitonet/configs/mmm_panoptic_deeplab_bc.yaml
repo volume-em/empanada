@@ -80,8 +80,7 @@ TRAIN:
   # performance metrics
   print_freq: 50
   metrics:
-      - { metric: "IoU", name: "semantic_iou", output_key: "sem_logits",  target_key: "sem"}
-      - { metric: "IoU", name: "boundary_iou", output_key: "cnt_logits",  target_key: "cnt"}
+      - { metric: "IoU", name: "semantic_iou", labels: [ 1 ], output_key: "sem_logits",  target_key: "sem"}
 
   # dataset parameters
   batch_size: 64
@@ -92,7 +91,6 @@ TRAIN:
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}
     - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }
-    #- { aug: "RandomResizedCrop", height: 256, width: 256, scale: [ 0.5, 2 ], ratio: [ 0.8, 1.2 ] }
     - { aug: "RandomCrop", height: 256, width: 256}
     - { aug: "Rotate", limit: 180, border_mode: 0 }
     - { aug: "RandomBrightnessContrast", brightness_limit: 0.3, contrast_limit: 0.3 }
@@ -108,8 +106,8 @@ TRAIN:
   dist_backend: "nccl"
 
 EVAL:
-  eval_dir: "/data/IASEM/conradrw/data/panoptic/test_eval"
-  eval_track_indices: [ 131, 45, 268, 96, 252, 173, 53, 266, 138, 222, 127, 21 ] # from test_eval
+  eval_dir: null
+  eval_track_indices: null
   eval_track_freq: 10
   epochs_per_eval: 1
 
@@ -122,6 +120,7 @@ EVAL:
       iou_thr: 0.5
 
   # parameters needed for inference
+  engine: "BCEngine"
   engine_params:
     thing_list: [ 1 ]
     label_divisor: 1000

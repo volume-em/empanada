@@ -18,6 +18,7 @@ class BCDataset(_BaseDataset):
         self,
         data_dir,
         transforms=None,
+        heatmap_sigma=2,
         weight_gamma=0.3
     ):
         r"""Dataset for boundary contour generation that supports a single instance
@@ -37,6 +38,7 @@ class BCDataset(_BaseDataset):
         super(BCDataset, self).__init__(
             data_dir, transforms, weight_gamma
         )
+        self.heatmap_sigma = heatmap_sigma
 
     def __getitem__(self, idx):
         # transformed and paste example
@@ -56,14 +58,14 @@ class BCDataset(_BaseDataset):
         mask = output['mask']
 
         if isinstance(mask, torch.Tensor):
-            contours = seg_to_instance_bd(mask.numpy()[None])[0]
+            contours = seg_to_instance_bd(mask.numpy()[None], heatmap_sigma=self.heatmap_sigma)
             contours = torch.from_numpy(contours)
             output['sem'] = (mask > 0).float()
-            output['cnt'] = (contours > 0).float()
+            output['cnt_hmp'] = contours.float()
         elif isinstance(mask, np.ndarray):
-            contours = seg_to_instance_bd(mask[None])[0]
+            contours = seg_to_instance_bd(mask[None], heatmap_sigma=self.heatmap_sigma)
             output['sem'] = (mask > 0).astype(np.float32)
-            output['cnt'] = (contours > 0).astype(np.float32)
+            output['cnt_hmp'] = contours.astype(np.float32)
         else:
             raise Exception(f'Invalid mask type {type(mask)}. Expect tensor or ndarray.')
 

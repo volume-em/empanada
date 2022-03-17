@@ -226,15 +226,12 @@ def main_worker(gpu, ngpus_per_node, config):
     for aug_params in config['TRAIN']['augmentations']:
         aug_name = aug_params['aug']
 
-        assert aug_name in augmentations or aug_name == 'CopyPaste', \
+        assert aug_name in augmentations, \
         f'{aug_name} is not a valid albumentations augmentation!'
 
         config['aug_string'].append(aug_params['aug'])
         del aug_params['aug']
-        if aug_name == 'CopyPaste':
-            dataset_augs.append(CopyPaste(**aug_params))
-        else:
-            dataset_augs.append(A.__dict__[aug_name](**aug_params))
+        dataset_augs.append(A.__dict__[aug_name](**aug_params))
 
     config['aug_string'] = ','.join(config['aug_string'])
 
