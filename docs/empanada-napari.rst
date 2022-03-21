@@ -124,13 +124,18 @@ for it to be considered a true object center.
 **Centers Min Distance:** The minimum distance allowed between centers in pixels.
 
 **Fine boundaries:** Whether to run Panoptic DeepLab postprocessing at 0.25x the
-input image resolution.
+input image resolution. Can correct some segmentation errors at the cost of 4x
+more GPU/CPU memory.
 
 **Semantic Only:** Whether to skip panoptic postprocessing and return only a semantic
 segmentation.
 
 **Max objects per class:** The maximum number of objects that are allowed for any one
 of the classes being segmented by the model.
+
+**Batch Mode:** If checked, the selected model will be run independently on each
+xy slice in a stack of images. This can be used, for example, to run inference on
+all images in a folder by loading them with "Open Folder..." in napari.
 
 **Use GPU:** Whether to use system GPU for running inference. If no GPU is detected
 on the workstation, then this parameter is ignored.
@@ -180,7 +185,8 @@ for it to be considered a true object center.
 **Centers Min Distance:** The minimum distance allowed between centers in pixels.
 
 **Fine boundaries:** Whether to run Panoptic DeepLab postprocessing at 0.25x the
-input image resolution.
+input image resolution. Can correct some segmentation errors at the cost of 4x
+more GPU/CPU memory.
 
 **Semantic Only:** Whether to skip panoptic postprocessing and return only a semantic
 segmentation.
@@ -293,8 +299,8 @@ Note that current only Point Rend enabled models can be imported.
 On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
 This module only applies for registering custom or finetuned models.
 
-Note that if the 2D or 3D Inference module have already been opened then imported models will not
-appear in the available models list. Restarting napari with update it. Currently deleting
+Note that if the 2D or 3D Inference module have already been opened, then imported models will not
+appear in the available models list. Restarting napari will update it. Currently deleting
 models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
 from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
 `{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
@@ -304,7 +310,7 @@ Split, Merge, Delete Labels
 =============================
 
 These modules are used for manual cleanup of the predicted segmentation, especially
-for fixing oversplit and overmerged instances. Importantly, they were inspired
+for fixing oversplit and overmerged instances. They were inspired
 by this `nifty plugin <https://github.com/haesleinhuepf/napari-manual-split-and-merge-labels>`_.
 Unlike that plugin, these functions work for both 2D and 3D images. **Currently,
 label layers must be of numpy type. If the segmentations were stored in
@@ -322,7 +328,7 @@ Parameters
 
 **labels layer:** The napari labels layer for which to apply operations.
 
-**points layers:** The napari points layer used for select points/instances.
+**points layers:** The napari points layer used to select points/instances.
 
 Here's example usage for split and merging objects.
 
