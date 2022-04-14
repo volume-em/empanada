@@ -14,10 +14,10 @@ from collections import deque
 __all__ = [
     'PanopticDeepLabEngine',
     'PanopticDeepLabEngine3d',
+    'PanopticDeepLabRenderEngine',
+    'PanopticDeepLabRenderEngine3d',
     'BCEngine',
     'BCEngine3d',
-    'PanopticDeepLabRenderEngine3d',
-    'PanopticDeepLabMultiGPU'
 ]
 
 class _Engine:
@@ -227,55 +227,6 @@ class PanopticDeepLabEngine3d(_MedianQueue, PanopticDeepLabEngine):
 
         return pan_seg
 
-class BCEngine(_Engine):
-    def __init__(self, model, **kwargs):
-        super().__init__(model=model)
-
-    @torch.no_grad()
-    def infer(self, image):
-        model_out = self.model(image)
-        sem_logits = model_out['sem_logits']
-        cnt_logits = model_out['cnt_logits']
-
-        # only works for binary
-        assert sem_logits.size(1) == 1
-        sem = torch.sigmoid(sem_logits)
-        cnt = torch.sigmoid(cnt_logits)
-
-        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
-
-    def __call__(self, image):
-        # check that image is 4d (N, C, H, W)
-        assert image.ndim == 4 and image.size(0) == 1
-        return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
-
-class BCEngine3d(BCEngine, _MedianQueue):
-    def __init__(self, model, median_kernel_size=3, **kwargs):
-        super().__init__(model=model, median_kernel_size=median_kernel_size)
-
-    def end(self):
-        # list of remaining segs (1, 2, H, W)
-        return list(self.median_queue)[self.mid_idx + 1:]
-
-    def __call__(self, image):
-        # check that image is 4d (N, C, H, W) and has a
-        # batch dim of 1, larger batch size raises exception
-        assert image.ndim == 4 and image.size(0) == 1
-
-        # move image to same device as the model
-        image = self.to_model_device(image)
-
-        # infer labels and postprocess
-        model_out = self.infer(image)
-
-        self.enqueue(model_out)
-        median_out = self.get_next(keys=['bc'])
-        if median_out is None:
-            # nothing to return, we're building the queue
-            return None
-
-        return median_out['bc'] # (1, 2, H, W)
-
 class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
     def __init__(
         self,
@@ -360,6 +311,23 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         return sem, sem_logits
 
     @torch.no_grad()
+    def get_panoptic_seg(self, sem, instance_cells):
+        # keep only label for instance classes
+        instance_seg = torch.zeros_like(sem)
+        for thing_class in self.thing_list:
+            instance_seg[sem == thing_class] = 1
+
+        # map object ids
+        instance_seg = (instance_seg * instance_cells[0]).long()
+
+        pan_seg = merge_semantic_and_instance(
+            sem, instance_seg, self.label_divisor, self.thing_list,
+            self.stuff_area, self.void_label
+        )
+
+        return pan_seg
+
+    @torch.no_grad()
     def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
         sem_logits = coarse_sem_seg_logits.clone()
 
@@ -371,22 +339,7 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
 
         # harden the segmentation
         sem = self._harden_seg(sem)[0]
-
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
-
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[0]).long()
-
-        # get the completed pan_seg
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
-
-        return pan_seg
+        return self.get_panoptic_seg(sem, instance_cells)
 
     def __call__(self, image, size, upsampling=1):
         assert math.log(upsampling, 2).is_integer(),\
@@ -418,7 +371,7 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
 
         return pan_seg
 
-class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
+class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
     def __init__(
         self,
         model,
@@ -439,96 +392,9 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
             model=model, render_models=render_models, thing_list=thing_list,
             label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
             nms_threshold=nms_threshold, nms_kernel=nms_kernel,
-            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size
+            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size,
+            padding_factor=padding_factor, coarse_boundaries=coarse_boundaries
         )
-
-        self.padding_factor = padding_factor
-        self.coarse_boundaries = coarse_boundaries
-
-    @torch.no_grad()
-    def infer(self, image):
-        return self.model(image)
-
-    @torch.no_grad()
-    def get_instance_cells(self, ctr_hmp, offsets, upsampling=1):
-        # if calculating coarse boundaries then
-        # don't upsample from 1/4th resolution
-        # coarse boundaries are faster and memory friendly
-        # but can look "blocky" in the final segmentation
-        scale_factor = 1 if self.coarse_boundaries else 4
-
-        if scale_factor > 1:
-            ctr_hmp = F.interpolate(ctr_hmp, scale_factor=scale_factor, mode='bilinear', align_corners=True)
-            offsets = F.interpolate(offsets, scale_factor=scale_factor, mode='bilinear', align_corners=True)
-
-        # first find the object centers
-        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
-
-        # grid step size for pixel grouping
-        step = 4 if self.coarse_boundaries else 1
-
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            instance_cells = torch.zeros_like(ctr_hmp)
-        else:
-            # grouped pixels should be integers,
-            # but we need them in float type for upsampling
-            instance_cells = group_pixels(ctr, offsets, step=step).float()[None] # (1, 1, H, W)
-
-        # scale again by the upsampling factor times step
-        instance_cells = F.interpolate(instance_cells, scale_factor=int(upsampling * step), mode='nearest')
-        return instance_cells
-
-    @torch.no_grad()
-    def upsample_logits(
-        self,
-        sem_logits,
-        coarse_sem_seg_logits,
-        features,
-        scale_factor
-    ):
-        # apply render model
-        if scale_factor >= 2:
-            # each forward pass upsamples sem_logits by a factor of 2
-            for _ in range(int(math.log(scale_factor, 2))):
-                sem_logits = self.render_models['sem_logits'](sem_logits, coarse_sem_seg_logits, features)
-
-        # apply classification activation
-        if sem_logits.size(1) > 1:
-            sem = F.softmax(sem_logits, dim=1)
-        else:
-            sem = torch.sigmoid(sem_logits)
-
-        return sem, sem_logits
-
-    @torch.no_grad()
-    def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
-        sem_logits = coarse_sem_seg_logits.clone()
-
-        # seg to be upsampled by factor of 4 and then
-        # by factor of upsample
-        sem, sem_logits = self.upsample_logits(
-            sem_logits, coarse_sem_seg_logits, features, upsampling * 4
-        )
-
-        # harden the segmentation
-        sem = self._harden_seg(sem)[0]
-
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
-
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[0]).long()
-
-        # get the completed pan_seg
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
-
-        return pan_seg
 
     def end(self, upsampling=1):
         # any items past self.mid_idx remaining
@@ -575,102 +441,51 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
 
         return pan_seg
 
-class PanopticDeepLabMultiGPU(PanopticDeepLabEngine):
-    def __init__(
-        self,
-        model,
-        thing_list,
-        label_divisor=1000,
-        stuff_area=64,
-        void_label=0,
-        nms_threshold=0.1,
-        nms_kernel=7,
-        confidence_thr=0.5,
-        **kwargs
-    ):
-        super().__init__(
-            model, thing_list, label_divisor, stuff_area,
-            void_label, nms_threshold, nms_kernel, confidence_thr,
-            **kwargs
-        )
+class BCEngine(_Engine):
+    def __init__(self, model, **kwargs):
+        super().__init__(model=model)
 
     @torch.no_grad()
-    def get_instance_cells(self, ctr_hmp, offsets):
-        # first find the object centers
-        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
+    def infer(self, image):
+        model_out = self.model(image)
+        sem_logits = model_out['sem_logits']
+        cnt_logits = model_out['cnt_logits']
 
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            return torch.zeros_like(ctr_hmp)
+        # only works for binary
+        assert sem_logits.size(1) == 1
+        sem = torch.sigmoid(sem_logits)
+        cnt = torch.sigmoid(cnt_logits)
 
-        return group_pixels(ctr, offsets, step=1)
+        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
 
-    @torch.no_grad()
-    def get_panoptic_seg(self, sem, instance_cells):
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W)
+        assert image.ndim == 4 and image.size(0) == 1
+        return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[None]).long()
+class BCEngine3d(BCEngine, _MedianQueue):
+    def __init__(self, model, median_kernel_size=3, **kwargs):
+        super().__init__(model=model, median_kernel_size=median_kernel_size)
 
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
+    def end(self):
+        # list of remaining segs (1, 2, H, W)
+        return list(self.median_queue)[self.mid_idx + 1:]
 
-        return pan_seg
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W) and has a
+        # batch dim of 1, larger batch size raises exception
+        assert image.ndim == 4 and image.size(0) == 1
 
-class PanopticDeepLabMultiGPURender(PanopticDeepLabRenderEngine):
-    def __init__(
-        self,
-        model,
-        render_models,
-        thing_list,
-        label_divisor=1000,
-        stuff_area=64,
-        void_label=0,
-        nms_threshold=0.1,
-        nms_kernel=7,
-        confidence_thr=0.5,
-        median_kernel_size=3,
-        padding_factor=16,
-        coarse_boundaries=True,
-        **kwargs
-    ):
-        super().__init__(
-            model=model, render_models=render_models, thing_list=thing_list,
-            label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
-            nms_threshold=nms_threshold, nms_kernel=nms_kernel,
-            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size,
-            padding_factor=padding_factor, coarse_boundaries=coarse_boundaries
-        )
+        # move image to same device as the model
+        image = self.to_model_device(image)
 
-    @torch.no_grad()
-    def get_instance_cells(self, ctr_hmp, offsets):
-        # first find the object centers
-        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
+        # infer labels and postprocess
+        model_out = self.infer(image)
 
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            return torch.zeros_like(ctr_hmp)
+        self.enqueue(model_out)
+        median_out = self.get_next(keys=['bc'])
+        if median_out is None:
+            # nothing to return, we're building the queue
+            return None
 
-        return group_pixels(ctr, offsets, step=1)
-
-    @torch.no_grad()
-    def get_panoptic_seg(self, sem, instance_cells):
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
-
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[None]).long()
-
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
-
-        return pan_seg
+        return median_out['bc'] # (1, 2, H, W)
