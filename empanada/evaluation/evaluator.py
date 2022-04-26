@@ -115,6 +115,7 @@ class Evaluator:
             instances_dict = {
                 'gt_matched': gt_matched, 'pred_matched': pred_matched,
                 'gt_unmatched': gt_unmatched, 'pred_unmatched': pred_unmatched,
+                'matched_ious': matched_ious
             }
             return results_dict, instances_dict
         else:
