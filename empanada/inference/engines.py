@@ -218,11 +218,8 @@ class PanopticDeepLabEngine3d(_MedianQueue, PanopticDeepLabEngine):
             # nothing to return, we're building the queue
             return None
 
-        # harden the segmentation to (N, 1, H, W)
-        median_out['sem'] = self._harden_seg(median_out['sem'])
-
         pan_seg = self.postprocess(
-            median_out['sem'], median_out['ctr_hmp'], median_out['offsets']
+            self._harden_seg(median_out['sem']), median_out['ctr_hmp'], median_out['offsets']
         )
 
         return pan_seg

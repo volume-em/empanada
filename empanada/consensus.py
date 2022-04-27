@@ -232,6 +232,63 @@ def bounding_box_screening(boxes, source_indices):
 
     return box_matches
 
+def merge_semantic_from_trackers(
+    semantic_trackers,
+    pixel_vote_thr=2
+):
+    r"""Performs the consensus creation algorithm for instances from an
+    arbitrary number of trackers (see empanada.inference.trackers).
+
+    Args:
+        semantic_trackers: List of empanada.inference.InstanceTracker. There
+        should only be a single instance for a semantic class.
+
+        pixel_vote_thr: Integer. Number of votes for a pixel/voxel to
+        be in the consensus segmentation. Default 2, assumes there are
+        3 semantic trackers.
+
+    Returns:
+        instances: A nested. dictionary of instances. Each key is an instance_id.
+        Values are themselves dictionaries that contain the bounding box
+        and run length encoding of the instance ('boxes', 'starts', 'runs').
+        For semantic seg there is only a single instance id: 1.
+
+    """
+    vol_shape = semantic_trackers[0].shape3d
+    
+    # extract the run length encoded segmentations
+    boxes = []
+    starts = []
+    runs = []
+    for tr in semantic_trackers:
+        assert len(tr.instances.keys()) == 1, 'Semantic classes only have 1 label!'
+        for attrs in tr.instances.values():
+            boxes.append(attrs['box'])
+            starts.append(attrs['starts'])
+            runs.append(attrs['runs'])
+            
+    # merge the boxes
+    merged_box = boxes[0]
+    for box in boxes[1:]:
+        merged_box = merge_boxes(merged_box, box)
+            
+    # concat rles to ranges
+    seg_ranges = np.concatenate([
+        np.stack([s, s + r], axis=1) for s,r in zip(starts, runs)
+    ])
+    
+    # sort the ranges and vote on pixels
+    seg_ranges = np.sort(seg_ranges, kind='stable', axis=0)
+    seg_ranges = np.array(rle_voting(seg_ranges, pixel_vote_thr))
+    
+    seg_attrs = {
+        'box': merged_box, 'starts': seg_ranges[:, 0],
+        'runs': seg_ranges[:, 1] - seg_ranges[:, 0]
+    }
+    
+    # value of semantic class is 1 now
+    return {1: seg_attrs}
+
 def merge_objects_from_trackers(
     object_trackers,
     pixel_vote_thr=2,

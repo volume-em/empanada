@@ -85,9 +85,12 @@ TRAIN:
 
   # dataset parameters
   batch_size: 64
-  dataset_class: "SingleClassInstanceDataset"
-  weight_gamma: 0.7
   workers: 8
+  
+  dataset_class: "SingleClassInstanceDataset"
+  dataset_params:
+      weight_gamma: 0.7
+  
 
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}

@@ -21,7 +21,7 @@ from empanada.inference.postprocess import factor_pad
 from empanada.array_utils import *
 from empanada.zarr_utils import *
 from empanada.evaluation import *
-from empanada.consensus import merge_objects_from_trackers
+from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
 from empanada.config_loaders import load_config
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
@@ -264,23 +264,25 @@ if __name__ == "__main__":
 
         # merge instances from orthoplane inference if applicable
         if len(class_trackers) > 1:
-            # empty tracker
             consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
+            if class_id in thing_list:
+                consensus_tracker.instances = merge_objects_from_trackers(class_trackers, **config['INFERENCE']['consensus_params'])
 
-            # fill with the consensus instances
-            consensus_tracker.instances = merge_objects_from_trackers(class_trackers, **config['INFERENCE']['consensus_params'])
-
-            # apply filters to final merged segmentation
-            if filter_names:
-                for filt,kwargs in zip(filter_names, filter_kwargs):
-                    filters.__dict__[filt](consensus_tracker, **kwargs)
+                # apply filters to final merged segmentation
+                if filter_names:
+                    for filt,kwargs in zip(filter_names, filter_kwargs):
+                        filters.__dict__[filt](consensus_tracker, **kwargs)
+            else:
+                consensus_tracker.instances = merge_semantic_from_trackers(class_trackers, config['INFERENCE']['consensus_params']['pixel_vote_thr'])
+                
         else:
             consensus_tracker = class_trackers[0]
-
-
+            
+        dtype = np.uint32 if class_id in thing_list else np.uint8
+        
         # decode and fill the instances
         consensus_vol = data.create_dataset(
-            f'{config_name}_{class_name}_pred', shape=shape, dtype=np.uint64,
+            f'{config_name}_{class_name}_pred', shape=shape, dtype=dtype,
             overwrite=True, chunks=(1, None, None)
         )
         zarr_fill_instances(consensus_vol, consensus_tracker.instances)
