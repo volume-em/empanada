@@ -39,7 +39,7 @@ def create_graph_of_clusters(G, cluster_iou_thr):
     Args:
         G: nx.Graph containing detection nodes
         cluster_iou_thr: Minimum IoU score between nodes for them
-        to be put into the same group.
+            to be put into the same group.
 
     Returns:
         cluster_graph: nx.Graph containing the grouped detection nodes.
@@ -199,10 +199,10 @@ def bounding_box_screening(boxes, source_indices):
 
     Args:
         boxes: Array of size (n, 4) or (n, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
         source_indices: Array of size (n,) that records the source of each
-        bounding box. Bounding boxes from the same source are always screened.
+            bounding box. Bounding boxes from the same source are always screened.
 
     Returns:
         box_matches: Array of size (k, 2). Each item is a unique pair of bounding
@@ -306,19 +306,19 @@ def merge_objects_from_trackers(
         object_trackers: List of empanada.inference.InstanceTracker
 
         pixel_vote_thr: Integer. Number of votes for a pixel/voxel to
-        be in the consensus segmentation. Default 2, assumes there are
-        3 object trackers.
+            be in the consensus segmentation. Default 2, assumes there are
+            3 object trackers.
 
         cluster_iou_thr: Float. IoU threshold for merging groups of instances.
-        Default 0.75.
+            Default 0.75.
 
         bypass: Bool. If True, instances that appear in just 1 of the object
-        trackers can be included in the consensus. This will only affect the
-        final segmentation if pixel_vote_thr < 0.5 * len(object_trackers).
-        Default False.
+            trackers can be included in the consensus. This will only affect the
+            final segmentation if pixel_vote_thr < 0.5 * len(object_trackers).
+            Default False.
 
     Returns:
-        instances: A nested. dictionary of instances. Each key is an instance_id.
+        instances: A nested dictionary of instances. Each key is an instance_id.
         Values are themselves dictionaries that contain the bounding box
         and run length encoding of the instance ('boxes', 'starts', 'runs').
 

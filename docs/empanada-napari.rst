@@ -13,30 +13,35 @@ Napari is still considered alpha phase software and may not install correctly on
 first attempt, if that happens please open an issue `with us here <https://github.com/volume-em/empanada-napari/issues>`_.
 Or reach out to the napari developers directly `here <https://github.com/napari/napari/issues>`_.
 
-**IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
+.. note::
 
-  1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
+  **IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
 
-  2. Download the correct installer for your OS (Mac, Linux, Windows).
 
-  3. After installing `conda`, open a new terminal or command prompt window.
+1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
 
-  4. Verify conda installed correctly with::
+2. Download the correct installer for your OS (Mac, Linux, Windows).
 
-      $ conda --help
+3. After installing `conda`, open a new terminal or command prompt window.
 
-    If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
-    the terminal or command prompt window. If that doesn't work then
-    see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
-    or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
+4. Verify conda installed correctly with::
 
-  5. Install napari with pip::
+    $ conda --help
 
-      $ python -m pip install "napari[all]"
+.. note::
 
-  6. To verify installation, run::
+  If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
+  the terminal or command prompt window. If that doesn't work then
+  see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
+  or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
 
-      $ napari
+5. Install napari with pip::
+
+    $ python -m pip install "napari[all]"
+
+6. To verify installation, run::
+
+    $ napari
 
 For alternative and more detailed installation instructions, see the
 `official napari installation tutorial <https://napari.org/tutorials/fundamentals/installation>`_.
@@ -232,10 +237,12 @@ therefore it's highly recommended to test out inference parameters beforehand us
 the viewer is pointed at in napari. This means that parameters can be tested on xy, xz and yz
 slices beforehand by flipping the volume and scrolling through the images.
 
-**Note:** When running the 2D inference module on images of a given size for the first
-time, results can be slow. After inference is run twice on a particular size it will
-be much faster. This is because pytorch is performing optimization in the background to
-make the model faster on your systems hardware.
+.. note::
+
+  When running the 2D inference module on images of a given size for the first
+  time, results can be slow. After inference is run twice on a particular size it will
+  be much faster. This is because pytorch is performing optimization in the background to
+  make the model faster on your systems hardware.
 
 We've found that models can give considerably different results based on the nanometer
 resolution of the input image. Also, model inference is faster the smaller the input image,
@@ -294,16 +301,22 @@ Parameters
 **Model name:** User chosen name to use for this model throughout the other plugin modules.
 
 **Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
-Note that current only Point Rend enabled models can be imported.
+Currently only PointRend enabled models can be imported.
 
 On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
 This module only applies for registering custom or finetuned models.
 
-Note that if the 2D or 3D Inference module have already been opened, then imported models will not
-appear in the available models list. Restarting napari will update it. Currently deleting
-models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
-from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
-`{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
+.. note::
+
+  If the 2D or 3D Inference module have already been opened, then imported models will not
+  appear in the available models list. Restarting napari will update it.
+
+.. note::
+
+  Currently deleting
+  models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
+  from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
+  `{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
 
 
 Split, Merge, Delete Labels

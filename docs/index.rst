@@ -44,6 +44,7 @@ Contents
     :maxdepth: 2
 
     tutorial
+    api
     empanada-napari
 
 
