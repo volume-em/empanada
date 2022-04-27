@@ -261,11 +261,15 @@ def merge_semantic_from_trackers(
     starts = []
     runs = []
     for tr in semantic_trackers:
-        assert len(tr.instances.keys()) == 1, 'Semantic classes only have 1 label!'
+        assert len(tr.instances.keys()) <= 1, 'Semantic classes only have 1 label!'
         for attrs in tr.instances.values():
             boxes.append(attrs['box'])
             starts.append(attrs['starts'])
             runs.append(attrs['runs'])
+          
+    # no segs found
+    if not boxes:
+        return {}
             
     # merge the boxes
     merged_box = boxes[0]
