@@ -36,8 +36,8 @@ def zarr_fill_instances(array, instances, processes=4):
         array: zarr.Array of size (d, h, w)
 
         instances: Dictionary. Keys are instance_ids (integers) and
-        values are another dictionary containing the run length
-        encoding (keys: 'starts', 'runs').
+            values are another dictionary containing the run length
+            encoding (keys: 'starts', 'runs').
 
         processes: Integer, the number of processes to run.
 

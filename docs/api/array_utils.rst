@@ -1,5 +1,5 @@
 Array Utils (``empanada.array_utils``)
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: empanada.array_utils.box_area
+.. automodule:: empanada.array_utils
    :members:

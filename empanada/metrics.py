@@ -265,12 +265,12 @@ class ComposeMetrics:
 
     Args:
         metrics_dict: Dictionary, keys are the names of metrics and values are
-        the _BaseMetric class than records/calculate that metric.
+            the _BaseMetric class than records/calculate that metric.
 
         class_names: Dictionary, keys are class_ids and values are names.
 
         reset_on_print: Bool. If True, the history of each metric is wiped
-        after results are printed.
+            after results are printed.
 
     """
     def __init__(

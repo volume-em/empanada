@@ -17,7 +17,7 @@ class BootstrapCE(nn.Module):
 
     Args:
         top_k_percent_pixels: Float, fraction of largest loss values
-        to average. Default 0.2
+            to average. Default 0.2
 
     """
     def __init__(self, top_k_percent_pixels=0.2):
@@ -110,10 +110,10 @@ class PanopticLoss(nn.Module):
         l1_weight: Float, weight to apply to the center offsets loss.
 
         pr_weight: Float, weight to apply to the point rend semantic
-        segmentation loss. Only applies if using a Point Rend enabled model.
+            segmentation loss. Only applies if using a Point Rend enabled model.
 
         top_k_percent: Float, fraction of largest semantic segmentation
-        loss values to consider in BootstrapCE.
+            loss values to consider in BootstrapCE.
 
     """
     def __init__(
@@ -160,10 +160,10 @@ class BCLoss(nn.Module):
 
     Args:
         pr_weight: Float, weight to apply to the point rend semantic
-        segmentation loss. Only applies if using a Point Rend enabled model.
+            segmentation loss. Only applies if using a Point Rend enabled model.
 
         top_k_percent: Float, fraction of largest semantic segmentation
-        loss values to consider in BootstrapCE.
+            loss values to consider in BootstrapCE.
 
     """
     def __init__(
