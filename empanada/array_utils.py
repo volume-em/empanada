@@ -43,7 +43,7 @@ def box_area(boxes):
 
     Args:
         boxes: Array of size (n, 4) or (n, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
     Returns:
         areas: Array of (n,) of each box area/volume.
@@ -64,12 +64,12 @@ def box_intersection(boxes1, boxes2=None):
 
     Args:
         boxes1: Array of size (n, 4) or (n, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
         boxes2: Array of size (m, 4) or (m, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-        If None, then pairwise intersections are calculated between
-        all pairs of boxes in boxes1. Default, None.
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            If None, then pairwise intersections are calculated between
+            all pairs of boxes in boxes1. Default, None.
 
     Returns:
         intersections: Array of (n, m) defining pairwise area/volume
@@ -128,12 +128,12 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
 
     Args:
         boxes1: Array of size (n, 4) or (n, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
         boxes2: Array of size (m, 4) or (m, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-        If None, then pairwise IoUs are calculated between
-        all pairs of boxes in boxes1. Default, None.
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            If None, then pairwise IoUs are calculated between
+            all pairs of boxes in boxes1. Default, None.
 
     Returns:
         ious: Array of (n, m) defining pairwise IoUs between boxes.
@@ -220,7 +220,7 @@ def string_to_rle(encoding):
 
     Args:
         rle_string: String representation of a run length encoding.
-        Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
+            Format is "starts[0] runs[0] starts[1] runs[1] ... starts[n] runs[n]"
 
     Returns:
         starts: Array of (l,) starting indices.
@@ -295,7 +295,7 @@ def intersection_from_ranges(merged_runs, changes):
         merged_runs: Integer array of (n, 2) where each element is a range of [start, end].
 
         changes: Boolean array of (n,). True where the current range is from a different
-        source run length encoding than the next range.
+            source run length encoding than the next range.
 
     Returns:
         intersection: Integer, number of pixels/voxels that overlap in merged_runs.
@@ -411,7 +411,7 @@ def split_range_by_votes(running_range, num_votes, vote_thr=2):
         running_range: List of 2. First element is the run start and second element is run end.
 
         num_votes: List of n. Each element is the number of votes for a particular index
-        within the range(start, end).
+            within the range(start, end).
 
         vote_thr: Minimum number of votes for an index to be kept in the running range.
 
@@ -454,7 +454,7 @@ def extend_range(range1, range2, num_votes):
         range1: Tuple or List of (start_i, end_i) as integers.
         range2: Tuple or List of (start_j, end_j) as integers.
         num_votes: List of integers. Stores the number of votes at each
-        index in range1.
+            index in range1.
 
     Returns:
         extended_range: List of (start_i, end_j) as integers.
@@ -493,7 +493,7 @@ def rle_voting(ranges, vote_thr=2):
 
     Args:
         ranges: np.ndarray of (n, 2) possibly overlapping ranges.
-        Each range is defined by [start_idx, end_idx].
+            Each range is defined by [start_idx, end_idx].
 
     Returns:
         voted_ranges: np.ndarray of (m, 2) non-overlapping ranges.
@@ -546,7 +546,7 @@ def join_ranges(ranges):
 
     Args:
         ranges: np.ndarray of (n, 2) possibly overlapping ranges.
-        Each range is defined by [start_idx, end_idx].
+            Each range is defined by [start_idx, end_idx].
 
     Returns:
         joined: np.ndarray of (m, 2) non-overlapping ranges.

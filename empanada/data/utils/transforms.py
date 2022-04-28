@@ -1,11 +1,9 @@
 import cv2
 import math
 import numpy as np
-import albumentations as A
 
 __all__ = [
-    'resize_by_factor',
-    'FactorPad'
+    'resize_by_factor'
 ]
 
 def resize_by_factor(image, scale_factor=1):
@@ -32,14 +30,21 @@ def factor_pad(image, factor=128):
         padding = ((0, pad_bottom), (0, pad_right))
     else:
         raise Exception
-        
+
     padded_image = np.pad(image, padding)
     return padded_image
 
-class FactorPad(A.Lambda):
-    def __init__(self, factor=128):
+try:
+    # only necessary for model training,
+    # inference-only empanada doesn't need it
+    import albumentations as A
 
-        def pad_func(x, **kwargs):
-            return factor_pad(x, factor=factor)
+    class FactorPad(A.Lambda):
+        def __init__(self, factor=128):
 
-        super().__init__(image=pad_func, mask=pad_func)
+            def pad_func(x, **kwargs):
+                return factor_pad(x, factor=factor)
+
+            super().__init__(image=pad_func, mask=pad_func)
+except ImportError:
+    pass

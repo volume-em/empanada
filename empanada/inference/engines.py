@@ -14,10 +14,10 @@ from collections import deque
 __all__ = [
     'PanopticDeepLabEngine',
     'PanopticDeepLabEngine3d',
+    'PanopticDeepLabRenderEngine',
+    'PanopticDeepLabRenderEngine3d',
     'BCEngine',
     'BCEngine3d',
-    'PanopticDeepLabRenderEngine3d',
-    'PanopticDeepLabMultiGPU'
 ]
 
 class _Engine:
@@ -218,65 +218,13 @@ class PanopticDeepLabEngine3d(_MedianQueue, PanopticDeepLabEngine):
             # nothing to return, we're building the queue
             return None
 
-        # harden the segmentation to (N, 1, H, W)
-        median_out['sem'] = self._harden_seg(median_out['sem'])
-
         pan_seg = self.postprocess(
-            median_out['sem'], median_out['ctr_hmp'], median_out['offsets']
+            self._harden_seg(median_out['sem']), median_out['ctr_hmp'], median_out['offsets']
         )
 
         return pan_seg
 
-class BCEngine(_Engine):
-    def __init__(self, model, **kwargs):
-        super().__init__(model=model)
-
-    @torch.no_grad()
-    def infer(self, image):
-        model_out = self.model(image)
-        sem_logits = model_out['sem_logits']
-        cnt_logits = model_out['cnt_logits']
-
-        # only works for binary
-        assert sem_logits.size(1) == 1
-        sem = torch.sigmoid(sem_logits)
-        cnt = torch.sigmoid(cnt_logits)
-
-        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
-
-    def __call__(self, image):
-        # check that image is 4d (N, C, H, W)
-        assert image.ndim == 4 and image.size(0) == 1
-        return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
-
-class BCEngine3d(_MedianQueue, BCEngine):
-    def __init__(self, model, median_kernel_size=3, **kwargs):
-        super().__init__(model=model, median_kernel_size=median_kernel_size)
-
-    def end(self):
-        # list of remaining segs (1, 2, H, W)
-        return [med['bc'] for med in list(self.median_queue)[self.mid_idx + 1:]]
-
-    def __call__(self, image):
-        # check that image is 4d (N, C, H, W) and has a
-        # batch dim of 1, larger batch size raises exception
-        assert image.ndim == 4 and image.size(0) == 1
-
-        # move image to same device as the model
-        image = self.to_model_device(image)
-
-        # infer labels and postprocess
-        model_out = self.infer(image)
-
-        self.enqueue(model_out)
-        median_out = self.get_next(keys=['bc'])
-        if median_out is None:
-            # nothing to return, we're building the queue
-            return None
-
-        return median_out['bc'] # (1, 2, H, W)
-
-class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
+class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
     def __init__(
         self,
         model,
@@ -360,6 +308,23 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
         return sem, sem_logits
 
     @torch.no_grad()
+    def get_panoptic_seg(self, sem, instance_cells):
+        # keep only label for instance classes
+        instance_seg = torch.zeros_like(sem)
+        for thing_class in self.thing_list:
+            instance_seg[sem == thing_class] = 1
+
+        # map object ids
+        instance_seg = (instance_seg * instance_cells[0]).long()
+
+        pan_seg = merge_semantic_and_instance(
+            sem, instance_seg, self.label_divisor, self.thing_list,
+            self.stuff_area, self.void_label
+        )
+
+        return pan_seg
+
+    @torch.no_grad()
     def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
         sem_logits = coarse_sem_seg_logits.clone()
 
@@ -371,22 +336,62 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
 
         # harden the segmentation
         sem = self._harden_seg(sem)[0]
+        return self.get_panoptic_seg(sem, instance_cells)
 
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
+    def __call__(self, image, size, upsampling=1):
+        assert math.log(upsampling, 2).is_integer(),\
+        "Upsampling factor not log base 2!"
 
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[0]).long()
+        # check that image is 4d (N, C, H, W) and has a
+        # batch dim of 1, larger batch size raises exception
+        assert image.ndim == 4 and image.size(0) == 1
 
-        # get the completed pan_seg
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
+        # move image to same device as the model
+        h, w = size
+        image = factor_pad(image, self.padding_factor)
+        image = self.to_model_device(image)
+
+        # infer labels
+        model_out = self.infer(image)
+
+        # calculate the instance cells
+        instance_cells = self.get_instance_cells(
+            model_out['ctr_hmp'], model_out['offsets'], upsampling
+        )
+        pan_seg = self.postprocess(
+            model_out['sem_logits'], model_out['semantic_x'],
+            instance_cells, upsampling
         )
 
+        # remove padding from the pan_seg
+        pan_seg = pan_seg[..., :h, :w]
+
         return pan_seg
+
+class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
+    def __init__(
+        self,
+        model,
+        render_models,
+        thing_list,
+        label_divisor=1000,
+        stuff_area=64,
+        void_label=0,
+        nms_threshold=0.1,
+        nms_kernel=7,
+        confidence_thr=0.5,
+        median_kernel_size=3,
+        padding_factor=16,
+        coarse_boundaries=True,
+        **kwargs
+    ):
+        super().__init__(
+            model=model, render_models=render_models, thing_list=thing_list,
+            label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
+            nms_threshold=nms_threshold, nms_kernel=nms_kernel,
+            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size,
+            padding_factor=padding_factor, coarse_boundaries=coarse_boundaries
+        )
 
     def end(self, upsampling=1):
         # any items past self.mid_idx remaining
@@ -433,47 +438,51 @@ class PanopticDeepLabRenderEngine3d(_RenderEngine, PanopticDeepLabEngine3d):
 
         return pan_seg
 
-class PanopticDeepLabMultiGPU(PanopticDeepLabEngine):
-    def __init__(
-        self,
-        model,
-        thing_list,
-        label_divisor=1000,
-        stuff_area=64,
-        void_label=0,
-        nms_threshold=0.1,
-        nms_kernel=7,
-        confidence_thr=0.5,
-        **kwargs
-    ):
-        super().__init__(
-            model, thing_list, label_divisor, stuff_area,
-            void_label, nms_threshold, nms_kernel, confidence_thr,
-            **kwargs
-        )
+class BCEngine(_Engine):
+    def __init__(self, model, **kwargs):
+        super().__init__(model=model)
 
-    def get_instance_cells(self, ctr_hmp, offsets):
-        # first find the object centers
-        ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
+    @torch.no_grad()
+    def infer(self, image):
+        model_out = self.model(image)
+        sem_logits = model_out['sem_logits']
+        cnt_logits = model_out['cnt_logits']
 
-        # no objects, return zeros
-        if ctr.size(0) == 0:
-            return torch.zeros_like(ctr_hmp)
+        # only works for binary
+        assert sem_logits.size(1) == 1
+        sem = torch.sigmoid(sem_logits)
+        cnt = torch.sigmoid(cnt_logits)
 
-        return group_pixels(ctr, offsets, step=1)
+        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
 
-    def get_panoptic_seg(self, sem, instance_cells):
-        # keep only label for instance classes
-        instance_seg = torch.zeros_like(sem)
-        for thing_class in self.thing_list:
-            instance_seg[sem == thing_class] = 1
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W)
+        assert image.ndim == 4 and image.size(0) == 1
+        return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-        # map object ids
-        instance_seg = (instance_seg * instance_cells[None]).long()
+class BCEngine3d(BCEngine, _MedianQueue):
+    def __init__(self, model, median_kernel_size=3, **kwargs):
+        super().__init__(model=model, median_kernel_size=median_kernel_size)
 
-        pan_seg = merge_semantic_and_instance(
-            sem, instance_seg, self.label_divisor, self.thing_list,
-            self.stuff_area, self.void_label
-        )
+    def end(self):
+        # list of remaining segs (1, 2, H, W)
+        return list(self.median_queue)[self.mid_idx + 1:]
 
-        return pan_seg
+    def __call__(self, image):
+        # check that image is 4d (N, C, H, W) and has a
+        # batch dim of 1, larger batch size raises exception
+        assert image.ndim == 4 and image.size(0) == 1
+
+        # move image to same device as the model
+        image = self.to_model_device(image)
+
+        # infer labels and postprocess
+        model_out = self.infer(image)
+
+        self.enqueue(model_out)
+        median_out = self.get_next(keys=['bc'])
+        if median_out is None:
+            # nothing to return, we're building the queue
+            return None
+
+        return median_out['bc'] # (1, 2, H, W)

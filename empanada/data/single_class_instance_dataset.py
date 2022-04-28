@@ -2,10 +2,8 @@ import os
 import cv2
 import torch
 import numpy as np
-import albumentations as A
 from skimage import io
 from skimage import measure
-
 from empanada.data._base import _BaseDataset
 from empanada.data.utils import heatmap_and_offsets
 

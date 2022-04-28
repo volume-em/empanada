@@ -242,18 +242,18 @@ def main_worker(gpu, ngpus_per_node, config):
     ])
 
     # create training dataset and loader
-    train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+    train_dataset = data_cls(config['TRAIN']['train_dir'], transforms=tfs, **config['TRAIN']['dataset_params'])
     if config['TRAIN']['additional_train_dirs'] is not None:
         for train_dir in config['TRAIN']['additional_train_dirs']:
-            add_dataset = data_cls(train_dir, tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+            add_dataset = data_cls(train_dir, transforms=tfs, **config['TRAIN']['dataset_params'])
             train_dataset = train_dataset + add_dataset
 
     if config['TRAIN']['multiprocessing_distributed']:
-        if config['TRAIN']['weight_gamma'] is None:
+        if config['TRAIN']['dataset_params']['weight_gamma'] is None:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
             train_sampler = DistributedWeightedSampler(train_dataset, train_dataset.weights)
-    elif config['TRAIN']['weight_gamma'] is not None:
+    elif config['TRAIN']['dataset_params']['weight_gamma'] is not None:
         train_sampler = WeightedRandomSampler(train_dataset.weights, len(train_dataset))
     else:
         train_sampler = None
@@ -273,7 +273,7 @@ def main_worker(gpu, ngpus_per_node, config):
             A.Normalize(**norms),
             ToTensorV2()
         ])
-        eval_dataset = data_cls(config['EVAL']['eval_dir'], eval_tfs)
+        eval_dataset = data_cls(config['EVAL']['eval_dir'], transforms=eval_tfs, **config['TRAIN']['dataset_params'])
         # evaluation runs on a single gpu
         eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False,
                                  pin_memory=torch.cuda.is_available(),

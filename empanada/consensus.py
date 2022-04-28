@@ -39,7 +39,7 @@ def create_graph_of_clusters(G, cluster_iou_thr):
     Args:
         G: nx.Graph containing detection nodes
         cluster_iou_thr: Minimum IoU score between nodes for them
-        to be put into the same group.
+            to be put into the same group.
 
     Returns:
         cluster_graph: nx.Graph containing the grouped detection nodes.
@@ -199,10 +199,10 @@ def bounding_box_screening(boxes, source_indices):
 
     Args:
         boxes: Array of size (n, 4) or (n, 6) where bounding box
-        is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
 
         source_indices: Array of size (n,) that records the source of each
-        bounding box. Bounding boxes from the same source are always screened.
+            bounding box. Bounding boxes from the same source are always screened.
 
     Returns:
         box_matches: Array of size (k, 2). Each item is a unique pair of bounding
@@ -232,6 +232,67 @@ def bounding_box_screening(boxes, source_indices):
 
     return box_matches
 
+def merge_semantic_from_trackers(
+    semantic_trackers,
+    pixel_vote_thr=2
+):
+    r"""Performs the consensus creation algorithm for instances from an
+    arbitrary number of trackers (see empanada.inference.trackers).
+
+    Args:
+        semantic_trackers: List of empanada.inference.InstanceTracker. There
+        should only be a single instance for a semantic class.
+
+        pixel_vote_thr: Integer. Number of votes for a pixel/voxel to
+        be in the consensus segmentation. Default 2, assumes there are
+        3 semantic trackers.
+
+    Returns:
+        instances: A nested. dictionary of instances. Each key is an instance_id.
+        Values are themselves dictionaries that contain the bounding box
+        and run length encoding of the instance ('boxes', 'starts', 'runs').
+        For semantic seg there is only a single instance id: 1.
+
+    """
+    vol_shape = semantic_trackers[0].shape3d
+    
+    # extract the run length encoded segmentations
+    boxes = []
+    starts = []
+    runs = []
+    for tr in semantic_trackers:
+        assert len(tr.instances.keys()) <= 1, 'Semantic classes only have 1 label!'
+        for attrs in tr.instances.values():
+            boxes.append(attrs['box'])
+            starts.append(attrs['starts'])
+            runs.append(attrs['runs'])
+          
+    # no segs found
+    if not boxes:
+        return {}
+            
+    # merge the boxes
+    merged_box = boxes[0]
+    for box in boxes[1:]:
+        merged_box = merge_boxes(merged_box, box)
+            
+    # concat rles to ranges
+    seg_ranges = np.concatenate([
+        np.stack([s, s + r], axis=1) for s,r in zip(starts, runs)
+    ])
+    
+    # sort the ranges and vote on pixels
+    seg_ranges = np.sort(seg_ranges, kind='stable', axis=0)
+    seg_ranges = np.array(rle_voting(seg_ranges, pixel_vote_thr))
+    
+    seg_attrs = {
+        'box': merged_box, 'starts': seg_ranges[:, 0],
+        'runs': seg_ranges[:, 1] - seg_ranges[:, 0]
+    }
+    
+    # value of semantic class is 1 now
+    return {1: seg_attrs}
+
 def merge_objects_from_trackers(
     object_trackers,
     pixel_vote_thr=2,
@@ -245,19 +306,19 @@ def merge_objects_from_trackers(
         object_trackers: List of empanada.inference.InstanceTracker
 
         pixel_vote_thr: Integer. Number of votes for a pixel/voxel to
-        be in the consensus segmentation. Default 2, assumes there are
-        3 object trackers.
+            be in the consensus segmentation. Default 2, assumes there are
+            3 object trackers.
 
         cluster_iou_thr: Float. IoU threshold for merging groups of instances.
-        Default 0.75.
+            Default 0.75.
 
         bypass: Bool. If True, instances that appear in just 1 of the object
-        trackers can be included in the consensus. This will only affect the
-        final segmentation if pixel_vote_thr < 0.5 * len(object_trackers).
-        Default False.
+            trackers can be included in the consensus. This will only affect the
+            final segmentation if pixel_vote_thr < 0.5 * len(object_trackers).
+            Default False.
 
     Returns:
-        instances: A nested. dictionary of instances. Each key is an instance_id.
+        instances: A nested dictionary of instances. Each key is an instance_id.
         Values are themselves dictionaries that contain the bounding box
         and run length encoding of the instance ('boxes', 'starts', 'runs').
 

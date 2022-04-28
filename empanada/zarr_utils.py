@@ -36,8 +36,8 @@ def zarr_fill_instances(array, instances, processes=4):
         array: zarr.Array of size (d, h, w)
 
         instances: Dictionary. Keys are instance_ids (integers) and
-        values are another dictionary containing the run length
-        encoding (keys: 'starts', 'runs').
+            values are another dictionary containing the run length
+            encoding (keys: 'starts', 'runs').
 
         processes: Integer, the number of processes to run.
 
@@ -50,24 +50,31 @@ def zarr_fill_instances(array, instances, processes=4):
     for instance_id, instance_attrs in instances.items():
         starts = instance_attrs['starts']
         ends = starts + instance_attrs['runs']
-
+    
         start_zcoords = starts // (h * w)
         end_zcoords = (ends - 1) // (h * w)
         if not np.allclose(start_zcoords, end_zcoords):
             # this means a run extends across at least
             # 2 z slices so we need to separate the run
+            # not very efficient, but this is usually an edge case
             split_locs = np.where(start_zcoords != end_zcoords)[0]
+            offset = 0
             for loc in split_locs:
-                insert_start = (start_zcoords[loc] + 1) * h * w
-                insert_end = ends[loc]
+                insert_start = (start_zcoords[loc+offset] + 1) * h * w
+                insert_end = ends[loc+offset]
 
-                starts = np.insert(starts, loc+1, insert_start)
-                ends = np.insert(ends, loc+1, insert_end)
+                starts = np.insert(starts, loc+1+offset, insert_start)
+                ends = np.insert(ends, loc+1+offset, insert_end)
+                
+                start_zcoords = np.insert(start_zcoords, loc+1+offset, start_zcoords[loc+offset] + 1)
+                
                 # update the end to stop at last xy coord of z slice
-                ends[loc] = insert_start
+                ends[loc+offset] = insert_start
+                offset += 1
 
         start_xycoords = starts % (h * w)
         end_xycoords = ends % (h * w)
+        
         instance_coords_2d[instance_id] = [start_zcoords, start_xycoords, end_xycoords]
 
     # for each z slice we create an empty dict

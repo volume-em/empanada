@@ -13,30 +13,35 @@ Napari is still considered alpha phase software and may not install correctly on
 first attempt, if that happens please open an issue `with us here <https://github.com/volume-em/empanada-napari/issues>`_.
 Or reach out to the napari developers directly `here <https://github.com/napari/napari/issues>`_.
 
-**IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
+.. note::
 
-  1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
+  **IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
 
-  2. Download the correct installer for your OS (Mac, Linux, Windows).
 
-  3. After installing `conda`, open a new terminal or command prompt window.
+1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
 
-  4. Verify conda installed correctly with::
+2. Download the correct installer for your OS (Mac, Linux, Windows).
 
-      $ conda --help
+3. After installing `conda`, open a new terminal or command prompt window.
 
-    If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
-    the terminal or command prompt window. If that doesn't work then
-    see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
-    or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
+4. Verify conda installed correctly with::
 
-  5. Install napari with pip::
+    $ conda --help
 
-      $ python -m pip install "napari[all]"
+.. note::
 
-  6. To verify installation, run::
+  If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
+  the terminal or command prompt window. If that doesn't work then
+  see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
+  or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
 
-      $ napari
+5. Install napari with pip::
+
+    $ python -m pip install "napari[all]"
+
+6. To verify installation, run::
+
+    $ napari
 
 For alternative and more detailed installation instructions, see the
 `official napari installation tutorial <https://napari.org/tutorials/fundamentals/installation>`_.
@@ -124,13 +129,18 @@ for it to be considered a true object center.
 **Centers Min Distance:** The minimum distance allowed between centers in pixels.
 
 **Fine boundaries:** Whether to run Panoptic DeepLab postprocessing at 0.25x the
-input image resolution.
+input image resolution. Can correct some segmentation errors at the cost of 4x
+more GPU/CPU memory.
 
 **Semantic Only:** Whether to skip panoptic postprocessing and return only a semantic
 segmentation.
 
 **Max objects per class:** The maximum number of objects that are allowed for any one
 of the classes being segmented by the model.
+
+**Batch Mode:** If checked, the selected model will be run independently on each
+xy slice in a stack of images. This can be used, for example, to run inference on
+all images in a folder by loading them with "Open Folder..." in napari.
 
 **Use GPU:** Whether to use system GPU for running inference. If no GPU is detected
 on the workstation, then this parameter is ignored.
@@ -180,7 +190,8 @@ for it to be considered a true object center.
 **Centers Min Distance:** The minimum distance allowed between centers in pixels.
 
 **Fine boundaries:** Whether to run Panoptic DeepLab postprocessing at 0.25x the
-input image resolution.
+input image resolution. Can correct some segmentation errors at the cost of 4x
+more GPU/CPU memory.
 
 **Semantic Only:** Whether to skip panoptic postprocessing and return only a semantic
 segmentation.
@@ -226,10 +237,12 @@ therefore it's highly recommended to test out inference parameters beforehand us
 the viewer is pointed at in napari. This means that parameters can be tested on xy, xz and yz
 slices beforehand by flipping the volume and scrolling through the images.
 
-**Note:** When running the 2D inference module on images of a given size for the first
-time, results can be slow. After inference is run twice on a particular size it will
-be much faster. This is because pytorch is performing optimization in the background to
-make the model faster on your systems hardware.
+.. note::
+
+  When running the 2D inference module on images of a given size for the first
+  time, results can be slow. After inference is run twice on a particular size it will
+  be much faster. This is because pytorch is performing optimization in the background to
+  make the model faster on your systems hardware.
 
 We've found that models can give considerably different results based on the nanometer
 resolution of the input image. Also, model inference is faster the smaller the input image,
@@ -288,23 +301,29 @@ Parameters
 **Model name:** User chosen name to use for this model throughout the other plugin modules.
 
 **Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
-Note that current only Point Rend enabled models can be imported.
+Currently only PointRend enabled models can be imported.
 
 On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
 This module only applies for registering custom or finetuned models.
 
-Note that if the 2D or 3D Inference module have already been opened then imported models will not
-appear in the available models list. Restarting napari with update it. Currently deleting
-models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
-from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
-`{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
+.. note::
+
+  If the 2D or 3D Inference module have already been opened, then imported models will not
+  appear in the available models list. Restarting napari will update it.
+
+.. note::
+
+  Currently deleting
+  models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
+  from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
+  `{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
 
 
 Split, Merge, Delete Labels
 =============================
 
 These modules are used for manual cleanup of the predicted segmentation, especially
-for fixing oversplit and overmerged instances. Importantly, they were inspired
+for fixing oversplit and overmerged instances. They were inspired
 by this `nifty plugin <https://github.com/haesleinhuepf/napari-manual-split-and-merge-labels>`_.
 Unlike that plugin, these functions work for both 2D and 3D images. **Currently,
 label layers must be of numpy type. If the segmentations were stored in
@@ -322,7 +341,7 @@ Parameters
 
 **labels layer:** The napari labels layer for which to apply operations.
 
-**points layers:** The napari points layer used for select points/instances.
+**points layers:** The napari points layer used to select points/instances.
 
 Here's example usage for split and merging objects.
 

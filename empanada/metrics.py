@@ -119,7 +119,8 @@ class IoU(_BaseMetric):
         union = torch.sum(output + target, dims) - intersect
 
         # avoid division errors by adding a small epsilon
-        iou = (intersect + 1e-7) / (union + 1e-7)
+        # evaluates to iou of 1 when intersect and union are 0
+        iou = (intersect + 1e-5) / (union + 1e-5)
 
         if n_classes == 1:
             return {self.labels[0]: iou.item()}
@@ -265,12 +266,12 @@ class ComposeMetrics:
 
     Args:
         metrics_dict: Dictionary, keys are the names of metrics and values are
-        the _BaseMetric class than records/calculate that metric.
+            the _BaseMetric class than records/calculate that metric.
 
         class_names: Dictionary, keys are class_ids and values are names.
 
         reset_on_print: Bool. If True, the history of each metric is wiped
-        after results are printed.
+            after results are printed.
 
     """
     def __init__(
@@ -298,7 +299,7 @@ class ComposeMetrics:
 
             for l, v in avg_values.items():
                 value_name = self.class_names[l]
-                print_values.append(v)
+                print_values.append(float(v))
                 print_names.append(f'{value_name}_{metric_name}')
 
             if self.reset_on_print:
