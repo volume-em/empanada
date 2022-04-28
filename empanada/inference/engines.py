@@ -83,7 +83,7 @@ class _MedianQueue:
         self.median_queue.append(item)
 
     def end(self):
-        raise NotImplementedError
+        return list(self.median_queue)[self.mid_idx + 1:]
 
 class PanopticDeepLabEngine(_Engine):
     def __init__(
