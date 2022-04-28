@@ -11,7 +11,19 @@ from skimage.morphology import dilation
 from skimage.segmentation import watershed
 from skimage.morphology import remove_small_objects
 
+# optional import for faster connected components
+try:
+    import cc3d
+except:
+    pass
+
 __all__ = ['bc_watershed']
+
+def connected_components(seg):
+    if 'cc3d' in sys.modules:
+        return cc3d.connected_components(seg, connectivity=26, out_dtype=np.uint32)
+    else:
+        return label(seg).astype(np.uint32)
 
 def bc_watershed(
     volume,
@@ -39,7 +51,7 @@ def bc_watershed(
     boundary = volume[1]
     seed_map = (semantic > int(255*thres1)) * (boundary < int(255*thres2))
     foreground = (semantic > int(255*thres3))
-    seed = label(seed_map)
+    seed = connected_components(seed_map)
     seed = remove_small_objects(seed, seed_thres)
     segm = watershed(-semantic.astype(np.float64), seed, mask=foreground)
     segm = remove_small_objects(segm, min_size)
