@@ -11,81 +11,36 @@ from empanada.inference.postprocess import merge_semantic_and_instance
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
 
-
-#----------------------------------------------------------
-# Utilities for MultiGPU inference
-#----------------------------------------------------------
-
-def get_world_size() -> int:
-    if not dist.is_available():
-        return 1
-    if not dist.is_initialized():
-        return 1
-    return dist.get_world_size()
-
-
-def all_gather(tensor, group=None):
-    # all tensors are same size
-    world_size = dist.get_world_size()
-
-    # receiving Tensor from all ranks
-    tensor_list = [
-        torch.zeros_like(tensor) for _ in range(world_size)
-    ]
-
-    dist.all_gather(tensor_list, tensor, group=group)
-
-    return tensor_list
-
-def harden_seg(sem, confidence_thr):
-    if sem.size(1) > 1: # multiclass segmentation
-        sem = torch.argmax(sem, dim=1, keepdim=True)
-    else:
-        sem = (sem >= confidence_thr).long() # need integers not bool
-
-    return sem
-
-def get_panoptic_seg(
-    sem,
-    instance_cells,
-    label_divisor,
-    thing_list,
-    stuff_area=32,
-    void_label=0
-):
-    # keep only label for instance classes
-    instance_seg = torch.zeros_like(sem)
-    for thing_class in thing_list:
-        instance_seg[sem == thing_class] = 1
-
-    # map object ids
-    instance_seg = (instance_seg * instance_cells).long()
-
-    pan_seg = merge_semantic_and_instance(
-        sem, instance_seg, label_divisor, thing_list,
-        stuff_area, void_label
-    )
-
-    return pan_seg
+__all__ = [
+    'create_matchers',
+    'create_axis_trackers',
+    'apply_matchers',
+    'forward_matching',
+    'backward_matching',
+    'update_trackers',
+    'finish_tracking',
+    'apply_filters',
+    'get_axis_trackers_by_class',
+    'create_instance_consensus',
+    'create_semantic_consensus',
+    'fill_volume',
+    'all_gather',
+    'forward_multigpu'
+]
 
 def create_matchers(thing_list, label_divisor, merge_iou_thr, merge_ioa_thr):
+    r"""Create matchers for all instances classes."""
     matchers = [
         RLEMatcher(thing_class, label_divisor, merge_iou_thr, merge_ioa_thr)
         for thing_class in thing_list
     ]
     return matchers
 
-def apply_matchers(rle_seg, matchers):
-    for matcher in matchers:
-        class_id = matcher.class_id
-        if matcher.target_rle is None:
-            matcher.initialize_target(rle_seg[class_id])
-        else:
-            rle_seg[class_id] = matcher(rle_seg[class_id])
-
-    return rle_seg
-
 def create_axis_trackers(axes, class_labels, label_divisor, shape):
+    r"""Create a dictionary of trackers for all classes. Each
+    key is an axis_name ('xy', 'xz', 'yz') and keys are a list
+    of trackers for each class.
+    """
     trackers = {}
     for axis_name, axis in axes.items():
         trackers[axis_name] = [
@@ -95,7 +50,20 @@ def create_axis_trackers(axes, class_labels, label_divisor, shape):
         
     return trackers
 
-def run_forward_matchers(
+def apply_matchers(rle_seg, matchers):
+    r"""Matches instances in the given segmentation to
+    instances from the previous segmentation.
+    """
+    for matcher in matchers:
+        class_id = matcher.class_id
+        if matcher.target_rle is None:
+            matcher.initialize_target(rle_seg[class_id])
+        else:
+            rle_seg[class_id] = matcher(rle_seg[class_id])
+
+    return rle_seg
+
+def forward_matching(
     matchers,
     queue,
     rle_stack,
@@ -104,9 +72,9 @@ def run_forward_matchers(
     label_divisor,
     thing_list
 ):
-    r"""
-    Run forward matching of instances between slices in a separate process
-    on CPU while model is performing inference on GPU.
+    r"""Uses multiprocessing.Queue to receive predicted segmentations,
+    convert them to run length encodings, and match instances across
+    planes. Runs in parallel with model inference.
     """
     # go until queue gets the kill signal
     while True:
@@ -129,11 +97,14 @@ def run_forward_matchers(
     matcher_in.send([rle_stack])
     matcher_in.close()
 
-def run_backward_matchers(
+def backward_matching(
     rle_stack,
     matchers,
     axis_len
 ):
+    r"""Generator function that matches instances backward through the stack
+    and yields each matched segmentation in turn.
+    """
     # set the matchers to not assign new labels
     for matcher in matchers:
         matcher.target_rle = None
@@ -154,6 +125,11 @@ def update_trackers(
     axis=None,
     stack=None
 ):
+    r"""Updates trackers for a given axis with forward and
+    backward matched instance segmentations. Optionally, if a 
+    numpy or zarr array is given, it stores the final matched
+    panoptic segmentation.
+    """
     assert not (axis is None and stack is not None), \
     'Storing segs in stack requires an axis!'
 
@@ -170,6 +146,7 @@ def update_trackers(
         tracker.update(rle_seg[class_id], index)
 
 def finish_tracking(trackers):
+    r"""Ends tracking of instances."""
     for tracker in trackers:
         tracker.finish()
 
@@ -177,6 +154,7 @@ def apply_filters(
     tracker,
     filters_dict
 ):
+    r"""Applies a list of filters to the given tracker."""
     if filters_dict is not None:
         for filt in filters_dict:
             name = filt['name']
@@ -186,6 +164,11 @@ def apply_filters(
             filters.__dict__[name](tracker, **kwargs)
 
 def get_axis_trackers_by_class(trackers, class_id):
+    r"""Takes a dictionary of trackers (i.e., output of
+    create_axis_trackers) and returns trackers across
+    all axes that correspond to a particular segmentation
+    class.
+    """
     class_trackers = []
     for axis_name, axis_trackers in trackers.items():
         for tracker in axis_trackers:
@@ -200,6 +183,9 @@ def create_instance_consensus(
     cluster_iou_thr=0.75,
     bypass=False
 ):
+    r"""Applies the instance consensus algorithm to a list
+    of trackers and returns a new tracker with the result.
+    """
     class_id = class_trackers[0].class_id
     label_divisor = class_trackers[0].label_divisor
     shape = class_trackers[0].shape3d
@@ -215,6 +201,9 @@ def create_semantic_consensus(
     class_trackers,
     pixel_vote_thr=2
 ):
+    r"""Applies the semantic consensus algorithm (a simple vote) to a list
+    of trackers and returns a new tracker with the result.
+    """
     class_id = class_trackers[0].class_id
     label_divisor = class_trackers[0].label_divisor
     shape = class_trackers[0].shape3d
@@ -223,8 +212,76 @@ def create_semantic_consensus(
     consensus_tracker.instances = merge_semantic_from_trackers(class_trackers, pixel_vote_thr)
 
     return consensus_tracker
+    
+def fill_volume(volume, instances, processes=4):
+    r"""Fills a numpy or zarr array with the given
+    run length encoded instances. Runs in-place.
+    """
+    if isinstance(volume, np.ndarray):
+        numpy_fill_instances(volume, instances)
+    elif isinstance(volume, zarr.Array):
+        zarr_fill_instances(volume, instances, processes)
+    else:
+        raise Exception(f'Unknown volume type of {type(volume)}')
+        
+#----------------------------------------------------------
+# Utilities for MultiGPU inference
+#----------------------------------------------------------
 
-def run_forward_matchers_mgpu(
+def all_gather(tensor, group=None):
+    f"""All gather operation for distributed multi-gpu group."""
+    if not dist.is_available() or not dist.is_initialized():
+        world_size = 1
+    else:
+        world_size = dist.get_world_size()
+
+    # receiving Tensor from all ranks
+    tensor_list = [
+        torch.zeros_like(tensor) for _ in range(world_size)
+    ]
+
+    dist.all_gather(tensor_list, tensor, group=group)
+
+    return tensor_list
+
+def harden_seg(sem, confidence_thr):
+    r"""Thresholds a binary segmentation or softmaxes
+    and argmaxes a multiclass segmentation.
+    """
+    if sem.size(1) > 1: # multiclass segmentation
+        sem = torch.argmax(sem, dim=1, keepdim=True)
+    else:
+        sem = (sem >= confidence_thr).long() # need integers not bool
+
+    return sem
+
+def get_panoptic_seg(
+    sem,
+    instance_cells,
+    label_divisor,
+    thing_list,
+    stuff_area=32,
+    void_label=0
+):
+    r"""Create pantopic segmentation from semantic segmentation
+    and instance cells.
+    """
+    # keep only label for instance classes
+    instance_seg = torch.zeros_like(sem)
+    for thing_class in thing_list:
+        instance_seg[sem == thing_class] = 1
+
+    # map object ids
+    instance_seg = (instance_seg * instance_cells).long()
+
+    pan_seg = merge_semantic_and_instance(
+        sem, instance_seg, label_divisor, thing_list,
+        stuff_area, void_label
+    )
+
+    return pan_seg
+
+def forward_multigpu(
     matchers,
     queue,
     rle_stack,
@@ -238,8 +295,10 @@ def run_forward_matchers_mgpu(
     void_label=0,
     end_signal='finish',
 ):
-    r"""Run forward matching of instances between slices in a separate process
-    on CPU while model is performing inference on GPU.
+    r"""Handles segmentation median queue, panoptic postprocessing,
+    conversion to run length encoded segmentation, and forward matching.
+    Uses multiprocessing.Queue to receive predicted segmentations while
+    model inference runs in parallel.
     """
     # create the queue for sem and instance cells
     median_queue = _MedianQueue(median_kernel_size)
@@ -267,7 +326,7 @@ def run_forward_matchers_mgpu(
             continue
 
         # convert pan seg to rle
-        pan_seg = pan_seg.squeeze().cpu().numpy()
+        pan_seg = pan_seg.numpy()
         rle_seg = pan_seg_to_rle_seg(
             pan_seg, labels, label_divisor, thing_list, force_connected=True
         )
@@ -285,7 +344,7 @@ def run_forward_matchers_mgpu(
             thing_list, stuff_area, void_label
         )
 
-        pan_seg = pan_seg.squeeze().cpu().numpy()
+        pan_seg = pan_seg.numpy()
         rle_seg = pan_seg_to_rle_seg(
             pan_seg, labels, label_divisor, thing_list, force_connected=True
         )
@@ -296,11 +355,3 @@ def run_forward_matchers_mgpu(
 
     matcher_in.send([rle_stack])
     matcher_in.close()
-    
-def fill_volume(volume, instances, processes=4):
-    if isinstance(volume, np.ndarray):
-        numpy_fill_instances(volume, instances)
-    elif isinstance(volume, zarr.Array):
-        zarr_fill_instances(volume, instances, processes)
-    else:
-        raise Exception(f'Unknown volume type of {type(volume)}')

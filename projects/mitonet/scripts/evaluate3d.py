@@ -15,17 +15,10 @@ from empanada.data import VolumeDataset
 from empanada import models
 from empanada.inference import engines
 from empanada.inference import filters
-from empanada.inference.matcher import RLEMatcher
-from empanada.inference.tracker import InstanceTracker
 from empanada.inference.postprocess import factor_pad
-from empanada.array_utils import *
-from empanada.zarr_utils import *
-from empanada.evaluation import *
-from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
 from empanada.config_loaders import load_config
-from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
-
 from empanada.inference.patterns import *
+from empanada.evaluation import *
 
 archs = sorted(name for name in models.__dict__
     if callable(models.__dict__[name])
@@ -133,7 +126,7 @@ if __name__ == "__main__":
             matchers, queue, rle_stack, matcher_in, 
             class_labels, label_divisor, thing_list
         )
-        matcher_proc = mp.Process(target=run_forward_matchers, args=matcher_args)
+        matcher_proc = mp.Process(target=forward_matching, args=matcher_args)
         matcher_proc.start()
 
         # make axis-specific dataset
@@ -170,7 +163,7 @@ if __name__ == "__main__":
         matcher_proc.join()
 
         print(f'Propagating labels backward through the stack...')
-        for index,rle_seg in tqdm(run_backward_matchers(rle_stack, matchers, shape[axis]), total=shape[axis]):
+        for index,rle_seg in tqdm(backward_matching(rle_stack, matchers, shape[axis]), total=shape[axis]):
             update_trackers(rle_seg, index, trackers[axis_name], axis, stack)
 
         finish_tracking(trackers[axis_name])
