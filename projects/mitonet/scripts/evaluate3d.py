@@ -25,7 +25,7 @@ from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_
 from empanada.config_loaders import load_config
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
 
-from empanada.inference.patterns import run_forward_matchers, apply_filters
+from empanada.inference.patterns import *
 
 archs = sorted(name for name in models.__dict__
     if callable(models.__dict__[name])
@@ -78,7 +78,7 @@ if __name__ == "__main__":
             del state_dict[k]
 
     msg = model.load_state_dict(state['state_dict'], strict=True)
-    model.to('cuda' if torch.cuda.device_count() > 0 else 'cpu') # move model to GPU 0
+    model.to('cuda' if torch.cuda.is_available() else 'cpu') # move model to GPU 0
 
     # set the evaluation transforms
     norms = state['norms']
@@ -95,18 +95,13 @@ if __name__ == "__main__":
 
     axes = {'xy': 0, 'xz': 1, 'yz': 2}
     axes = {plane: axes[plane] for plane in config['INFERENCE']['axes']}
-
-    # create a separate tracker for
-    # each prediction axis and each segmentation class
-    trackers = {}
     class_labels = config['INFERENCE']['labels']
     thing_list = config['INFERENCE']['engine_params']['thing_list']
     label_divisor = config['INFERENCE']['engine_params']['label_divisor']
-    for axis_name, axis in axes.items():
-        trackers[axis_name] = [
-            InstanceTracker(class_id, label_divisor, shape, axis_name)
-            for class_id in class_labels
-        ]
+    
+    # create a separate tracker for
+    # each prediction axis and each segmentation class
+    trackers = create_axis_trackers(axes, class_labels, label_divisor, shape)
 
     for axis_name, axis in axes.items():
         print(f'Predicting {axis_name} stack')
@@ -128,22 +123,25 @@ if __name__ == "__main__":
         inference_engine = engine_cls(model, **config['INFERENCE']['engine_params'])
 
         # create a separate matcher for each thing class
-        matchers = [
-            RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
-            for thing_class in thing_list
-        ]
+        matchers = create_matchers(thing_list, label_divisor, **config['INFERENCE']['matcher_params'])
 
         # setup matcher for multiprocessing
         queue = mp.Queue()
         rle_stack = []
         matcher_out, matcher_in = mp.Pipe()
-        matcher_proc = mp.Process(target=run_forward_matchers, args=(matchers, queue, rle_stack, matcher_in))
+        matcher_args = (
+            matchers, queue, rle_stack, matcher_in, 
+            class_labels, label_divisor, thing_list
+        )
+        matcher_proc = mp.Process(target=run_forward_matchers, args=matcher_args)
         matcher_proc.start()
 
         # make axis-specific dataset
         dataset = VolumeDataset(volume, axis, eval_tfs, scale=1)
-        dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
-                                pin_memory=True, drop_last=False, num_workers=8)
+        dataloader = DataLoader(
+            dataset, batch_size=1, shuffle=False,
+            pin_memory=True, drop_last=False, num_workers=8
+        )
 
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
@@ -182,7 +180,7 @@ if __name__ == "__main__":
     # create the final instance segmentations
     for class_id in config['INFERENCE']['labels']:
         class_name = config['DATASET']['class_names'][class_id]
-        # get the relevant trackers for the class_label
+        
         print(f'Creating consensus segmentation for class {class_name}...')
         class_trackers = get_axis_trackers_by_class(trackers, class_id)
 
@@ -203,7 +201,7 @@ if __name__ == "__main__":
             f'{config_name}_{class_name}_pred', shape=shape, dtype=dtype,
             overwrite=True, chunks=(1, None, None)
         )
-        zarr_fill_instances(consensus_vol, consensus_tracker.instances)
+        fill_volume(consensus_vol, consensus_tracker.instances, processes=4)
         consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
 
     # run evaluation

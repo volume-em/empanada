@@ -605,3 +605,17 @@ def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
 
     # convert from ranges to runs
     return joined[:, 0], joined[:, 1] - joined[:, 0]
+
+def numpy_fill_instances(volume, instances):
+    r"""Helper function to fill numpy volume with run length encoded instances"""
+    shape = volume.shape
+    volume = volume.reshape(-1)
+    for instance_id, instance_attrs in instances.items():
+        starts = instance_attrs['starts']
+        ends = starts + instance_attrs['runs']
+
+        # fill ranges with instance id
+        for s,e in zip(starts, ends):
+            volume[s:e] = instance_id
+
+    return volume.reshape(shape)

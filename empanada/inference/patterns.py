@@ -1,13 +1,15 @@
 import numpy as np
 import torch
-from tqdm import tqdm
-from empanada.array_utils import put
+import zarr
+from empanada.array_utils import put, numpy_fill_instances
+from empanada.zarr_utils import zarr_fill_instances
 from empanada.inference import filters
 from empanada.inference.engines import _MedianQueue
+from empanada.inference.matcher import RLEMatcher
 from empanada.inference.tracker import InstanceTracker
 from empanada.inference.postprocess import merge_semantic_and_instance
 from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
-from empanada.inference.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
+from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
 
 
 #----------------------------------------------------------
@@ -66,6 +68,13 @@ def get_panoptic_seg(
 
     return pan_seg
 
+def create_matchers(thing_list, label_divisor, merge_iou_thr, merge_ioa_thr):
+    matchers = [
+        RLEMatcher(thing_class, label_divisor, merge_iou_thr, merge_ioa_thr)
+        for thing_class in thing_list
+    ]
+    return matchers
+
 def apply_matchers(rle_seg, matchers):
     for matcher in matchers:
         class_id = matcher.class_id
@@ -76,6 +85,16 @@ def apply_matchers(rle_seg, matchers):
 
     return rle_seg
 
+def create_axis_trackers(axes, class_labels, label_divisor, shape):
+    trackers = {}
+    for axis_name, axis in axes.items():
+        trackers[axis_name] = [
+            InstanceTracker(class_id, label_divisor, shape, axis_name)
+            for class_id in class_labels
+        ]
+        
+    return trackers
+
 def run_forward_matchers(
     matchers,
     queue,
@@ -83,8 +102,7 @@ def run_forward_matchers(
     matcher_in,
     labels,
     label_divisor,
-    thing_list,
-    end_signal='finish'
+    thing_list
 ):
     r"""
     Run forward matching of instances between slices in a separate process
@@ -94,18 +112,17 @@ def run_forward_matchers(
     while True:
         # create the rle_seg
         pan_seg = queue.get()
-        pan_seg = pan_seg.squeeze().cpu().numpy()
-        rle_seg = pan_seg_to_rle_seg(
-            pan_seg, labels, label_divisor, thing_list, force_connected=True
-        )
 
-        if rle_seg is None:
+        if pan_seg is None:
             # building the median filter queue
             continue
-        elif rle_seg == end_signal:
+        elif type(pan_seg) == str:
             # all images have been matched!
             break
         else:
+            rle_seg = pan_seg_to_rle_seg(
+                pan_seg, labels, label_divisor, thing_list, force_connected=True
+            )
             rle_seg = apply_matchers(rle_seg, matchers)
             rle_stack.append(rle_seg)
 
@@ -123,7 +140,7 @@ def run_backward_matchers(
         matcher.assign_new = False
 
     rev_indices = np.arange(0, axis_len)[::-1]
-    for rev_idx in tqdm(rev_indices):
+    for rev_idx in rev_indices:
         rev_idx = rev_idx.item()
         rle_seg = rle_stack[rev_idx]
         rle_seg = apply_matchers(rle_seg, matchers)
@@ -142,6 +159,7 @@ def update_trackers(
 
     # store the panoptic seg if needed
     if stack is not None:
+        shape = stack.shape
         shape2d = tuple([s for i,s in enumerate(shape) if i != axis])
         pan_seg = rle_seg_to_pan_seg(rle_seg, shape2d)
         put(stack, index, pan_seg, axis)
@@ -162,10 +180,10 @@ def apply_filters(
     if filters_dict is not None:
         for filt in filters_dict:
             name = filt['name']
-            kwargs = {k: v for k,v in filters_dict.items() if k != 'name'}
+            kwargs = {k: v for k,v in filt.items() if k != 'name'}
 
             # applied in-place
-            filters.__dict__[filt](tracker, **kwargs)
+            filters.__dict__[name](tracker, **kwargs)
 
 def get_axis_trackers_by_class(trackers, class_id):
     class_trackers = []
@@ -278,3 +296,11 @@ def run_forward_matchers_mgpu(
 
     matcher_in.send([rle_stack])
     matcher_in.close()
+    
+def fill_volume(volume, instances, processes=4):
+    if isinstance(volume, np.ndarray):
+        numpy_fill_instances(volume, instances)
+    elif isinstance(volume, zarr.Array):
+        zarr_fill_instances(volume, instances, processes)
+    else:
+        raise Exception(f'Unknown volume type of {type(volume)}')
