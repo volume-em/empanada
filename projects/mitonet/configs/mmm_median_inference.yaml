@@ -23,7 +23,6 @@ engine_params:
 matcher_params:
   merge_iou_thr: 0.25
   merge_ioa_thr: 0.25
-  force_connected: True
   
 consensus_params:
   pixel_vote_thr: 2

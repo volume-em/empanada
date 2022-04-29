@@ -15,15 +15,10 @@ from empanada.data import VolumeDataset
 from empanada import models
 from empanada.inference import engines
 from empanada.inference import filters
-from empanada.inference.matcher import RLEMatcher
-from empanada.inference.tracker import InstanceTracker
 from empanada.inference.postprocess import factor_pad
-from empanada.array_utils import *
-from empanada.zarr_utils import *
-from empanada.evaluation import *
-from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_trackers
 from empanada.config_loaders import load_config
-from empanada.inference.rle import pan_seg_to_rle_seg, rle_seg_to_pan_seg
+from empanada.inference.patterns import *
+from empanada.evaluation import *
 
 archs = sorted(name for name in models.__dict__
     if callable(models.__dict__[name])
@@ -37,44 +32,9 @@ def parse_args():
     parser.add_argument('--save-panoptic', action='store_true', help='Whether to save raw panoptic segmentation for each stack.')
     return parser.parse_args()
 
-def run_forward_matchers(
-    matchers,
-    queue,
-    rle_stack,
-    matcher_in,
-    end_signal='finish'
-):
-    """
-    Run forward matching of instances between slices in a separate process
-    on CPU while model is performing inference on GPU.
-    """
-    # go until queue gets the kill signal
-    while True:
-        rle_seg = queue.get()
-
-        if rle_seg is None:
-            # building the median filter queue
-            continue
-        elif rle_seg == end_signal:
-            # all images have been matched!
-            break
-        else:
-            # match the rle seg for each class
-            for matcher in matchers:
-                class_id = matcher.class_id
-                if matcher.target_rle is None:
-                    matcher.initialize_target(rle_seg[class_id])
-                else:
-                    rle_seg[class_id] = matcher(rle_seg[class_id])
-
-            rle_stack.append(rle_seg)
-
-    matcher_in.send([rle_stack])
-    matcher_in.close()
-
 if __name__ == "__main__":
     args = parse_args()
-    config_name = args.model_config.split('/')[-1].split('.yaml')[0]
+    config_name = os.path.basename(args.model_config).split('.yaml')[0]
 
     # read the config files
     config = load_config(args.model_config)
@@ -91,14 +51,11 @@ if __name__ == "__main__":
     engine_name = config['INFERENCE']['engine']
 
     assert model_arch in archs, f"Unrecognized model architecture {model_arch}."
-    filter_names = []
-    filter_kwargs = []
-    if 'filters' in config['INFERENCE']:
+
+    filters_dict = config['INFERENCE'].get('filters')
+    if filters_dict is not None:
         for f in config['INFERENCE']['filters']:
             assert f['name'] in filters.__dict__
-            filter_names.append(f['name'])
-            del f['name']
-            filter_kwargs.append(f)
 
     # setup model and engine class
     model = models.__dict__[model_arch](**config['MODEL'])
@@ -114,7 +71,7 @@ if __name__ == "__main__":
             del state_dict[k]
 
     msg = model.load_state_dict(state['state_dict'], strict=True)
-    model.to('cuda' if torch.cuda.device_count() > 0 else 'cpu') # move model to GPU 0
+    model.to('cuda' if torch.cuda.is_available() else 'cpu') # move model to GPU 0
 
     # set the evaluation transforms
     norms = state['norms']
@@ -131,18 +88,13 @@ if __name__ == "__main__":
 
     axes = {'xy': 0, 'xz': 1, 'yz': 2}
     axes = {plane: axes[plane] for plane in config['INFERENCE']['axes']}
-
-    # create a separate tracker for
-    # each prediction axis and each segmentation class
-    trackers = {}
     class_labels = config['INFERENCE']['labels']
     thing_list = config['INFERENCE']['engine_params']['thing_list']
     label_divisor = config['INFERENCE']['engine_params']['label_divisor']
-    for axis_name, axis in axes.items():
-        trackers[axis_name] = [
-            InstanceTracker(class_id, label_divisor, shape, axis_name)
-            for class_id in class_labels
-        ]
+
+    # create a separate tracker for
+    # each prediction axis and each segmentation class
+    trackers = create_axis_trackers(axes, class_labels, label_divisor, shape)
 
     for axis_name, axis in axes.items():
         print(f'Predicting {axis_name} stack')
@@ -153,30 +105,36 @@ if __name__ == "__main__":
             chunks = [None, None, None]
             chunks[axis] = 1
             chunks = tuple(chunks)
-            stack = data.create_dataset(f'{config_name}_panoptic_{axis_name}', shape=shape,
-                                        dtype=np.uint64, chunks=chunks,
-                                        overwrite=True)
+            stack = data.create_dataset(
+                f'{config_name}_panoptic_{axis_name}', shape=shape,
+                dtype=np.uint32, chunks=chunks, overwrite=True
+            )
+        else:
+            stack = None
 
         # create the inference engine
         inference_engine = engine_cls(model, **config['INFERENCE']['engine_params'])
 
         # create a separate matcher for each thing class
-        matchers = [
-            RLEMatcher(thing_class, label_divisor, **config['INFERENCE']['matcher_params'])
-            for thing_class in thing_list
-        ]
+        matchers = create_matchers(thing_list, label_divisor, **config['INFERENCE']['matcher_params'])
 
         # setup matcher for multiprocessing
         queue = mp.Queue()
         rle_stack = []
         matcher_out, matcher_in = mp.Pipe()
-        matcher_proc = mp.Process(target=run_forward_matchers, args=(matchers, queue, rle_stack, matcher_in))
+        matcher_args = (
+            matchers, queue, rle_stack, matcher_in,
+            class_labels, label_divisor, thing_list
+        )
+        matcher_proc = mp.Process(target=forward_matching, args=matcher_args)
         matcher_proc.start()
 
         # make axis-specific dataset
         dataset = VolumeDataset(volume, axis, eval_tfs, scale=1)
-        dataloader = DataLoader(dataset, batch_size=1, shuffle=False,
-                                pin_memory=True, drop_last=False, num_workers=8)
+        dataloader = DataLoader(
+            dataset, batch_size=1, shuffle=False,
+            pin_memory=True, drop_last=False, num_workers=8
+        )
 
         for batch in tqdm(dataloader, total=len(dataloader)):
             image = batch['image']
@@ -190,20 +148,14 @@ if __name__ == "__main__":
                 queue.put(None)
                 continue
             else:
-                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding and unit dimensions
-
-                # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, thing_list, force_connected=True)
-                queue.put(rle_seg)
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy()
+                queue.put(pan_seg)
 
         final_segs = inference_engine.end()
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
-                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy() # remove padding
-
-                # convert to a compressed rle segmentation
-                rle_seg = pan_seg_to_rle_seg(pan_seg, config['INFERENCE']['labels'], label_divisor, thing_list, force_connected=True)
-                queue.put(rle_seg)
+                pan_seg = pan_seg.squeeze()[:h, :w].cpu().numpy()
+                queue.put(pan_seg)
 
         # finish and close forward matching process
         queue.put('finish')
@@ -211,81 +163,38 @@ if __name__ == "__main__":
         matcher_proc.join()
 
         print(f'Propagating labels backward through the stack...')
+        for index,rle_seg in tqdm(backward_matching(rle_stack, matchers, shape[axis]), total=shape[axis]):
+            update_trackers(rle_seg, index, trackers[axis_name], axis, stack)
 
-        # set the matchers to not assign new labels
-        for matcher in matchers:
-            matcher.target_rle = None
-            matcher.assign_new = False
-
-        rev_indices = np.arange(0, shape[axis])[::-1]
-        for rev_idx in tqdm(rev_indices):
-            rev_idx = rev_idx.item()
-            rle_seg = rle_stack[rev_idx]
-
-            for matcher in matchers:
-                class_id = matcher.class_id
-                if matcher.target_rle is None:
-                    matcher.initialize_target(rle_seg[class_id])
-                else:
-                    rle_seg[class_id] = matcher(rle_seg[class_id])
-
-            # store the panoptic seg if desired
-            if args.save_panoptic:
-                shape2d = tuple([s for i,s in enumerate(shape) if i != axis])
-                pan_seg = rle_seg_to_pan_seg(rle_seg, shape2d)
-                put(stack, rev_idx, pan_seg, axis)
-
-            # track each instance for each class
-            for tracker in trackers[axis_name]:
-                class_id = tracker.class_id
-                tracker.update(rle_seg[class_id], rev_idx)
-
-        # finish tracking
+        finish_tracking(trackers[axis_name])
         for tracker in trackers[axis_name]:
-            tracker.finish()
-
-        # apply any filters
-        if filter_names:
-            for filt,kwargs in zip(filter_names, filter_kwargs):
-                for tracker in trackers[axis_name]:
-                    filters.__dict__[filt](tracker, **kwargs)
+            apply_filters(tracker, filters_dict)
 
     # create the final instance segmentations
     for class_id in config['INFERENCE']['labels']:
         class_name = config['DATASET']['class_names'][class_id]
-        # get the relevant trackers for the class_label
-        print(f'Creating consensus segmentation for class {class_name}...')
 
-        class_trackers = []
-        for axis_name, axis_trackers in trackers.items():
-            for tracker in axis_trackers:
-                if tracker.class_id == class_id:
-                    class_trackers.append(tracker)
+        print(f'Creating consensus segmentation for class {class_name}...')
+        class_trackers = get_axis_trackers_by_class(trackers, class_id)
 
         # merge instances from orthoplane inference if applicable
         if len(class_trackers) > 1:
-            consensus_tracker = InstanceTracker(class_id, label_divisor, shape, 'xy')
             if class_id in thing_list:
-                consensus_tracker.instances = merge_objects_from_trackers(class_trackers, **config['INFERENCE']['consensus_params'])
-
-                # apply filters to final merged segmentation
-                if filter_names:
-                    for filt,kwargs in zip(filter_names, filter_kwargs):
-                        filters.__dict__[filt](consensus_tracker, **kwargs)
+                consensus_tracker = create_instance_consensus(class_trackers, **config['INFERENCE']['consensus_params'])
+                apply_filters(consensus_tracker, filters_dict)
             else:
-                consensus_tracker.instances = merge_semantic_from_trackers(class_trackers, config['INFERENCE']['consensus_params']['pixel_vote_thr'])
-                
+                consensus_tracker = create_semantic_consensus(class_trackers, config['INFERENCE']['consensus_params']['pixel_vote_thr'])
         else:
             consensus_tracker = class_trackers[0]
-            
+
         dtype = np.uint32 if class_id in thing_list else np.uint8
-        
+
         # decode and fill the instances
         consensus_vol = data.create_dataset(
             f'{config_name}_{class_name}_pred', shape=shape, dtype=dtype,
             overwrite=True, chunks=(1, None, None)
         )
-        zarr_fill_instances(consensus_vol, consensus_tracker.instances)
+        fill_volume(consensus_vol, consensus_tracker.instances, processes=4)
         consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
 
     # run evaluation

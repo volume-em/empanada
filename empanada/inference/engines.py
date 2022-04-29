@@ -83,7 +83,7 @@ class _MedianQueue:
         self.median_queue.append(item)
 
     def end(self):
-        raise NotImplementedError
+        return list(self.median_queue)[self.mid_idx + 1:]
 
 class PanopticDeepLabEngine(_Engine):
     def __init__(
@@ -236,7 +236,6 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         nms_threshold=0.1,
         nms_kernel=7,
         confidence_thr=0.5,
-        median_kernel_size=3,
         padding_factor=16,
         coarse_boundaries=True,
         **kwargs
@@ -245,7 +244,7 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
             model=model, render_models=render_models, thing_list=thing_list,
             label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
             nms_threshold=nms_threshold, nms_kernel=nms_kernel,
-            confidence_thr=confidence_thr, median_kernel_size=median_kernel_size
+            confidence_thr=confidence_thr
         )
 
         self.padding_factor = padding_factor

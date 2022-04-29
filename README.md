@@ -2,7 +2,7 @@
 
 ## Overview
 
-empanada (**EM** **Pan**\optic **A**\ny **D**\imension **A**\nnotation) is a tool for panoptic segmentation of organelles in electron microscopy (EM) images in 2D and 3D.
+empanada (**EM** **Pan**optic **A**ny **D**imension **A**nnotation) is a tool for panoptic segmentation of organelles in 2D and 3D electron microscopy (EM) images.
 Panoptic segmentation combines both instance and semantic segmentation enabling a holistic approach to image annotation
 with a single deep learning model. To make model training and inference lightweight and broadly applicable to many EM
 imaging modalities, empanada runs all expensive operations on 2D images or run length encoded versions of 3D volumes.

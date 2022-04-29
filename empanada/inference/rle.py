@@ -1,12 +1,25 @@
+import sys
 import numpy as np
 from empanada.array_utils import *
 from skimage import measure
+
+# optional import for faster connected components
+try:
+    import cc3d
+except:
+    pass
 
 __all__ = [
     'pan_seg_to_rle_seg',
     'rle_seg_to_pan_seg',
     'unpack_rle_attrs'
 ]
+
+def connected_components(seg):
+    if 'cc3d' in sys.modules:
+        return cc3d.connected_components(seg, connectivity=8)
+    else:
+        return measure.label(seg).astype(seg.dtype)
 
 def pan_seg_to_rle_seg(
     pan_seg,
@@ -52,7 +65,7 @@ def pan_seg_to_rle_seg(
 
         # relabel connected components
         if force_connected and label in thing_list:
-            instance_seg = measure.label(instance_seg).astype(instance_seg.dtype)
+            instance_seg = connected_components(instance_seg)
             instance_seg[instance_seg > 0] += min_id
 
         # measure the regionprops
