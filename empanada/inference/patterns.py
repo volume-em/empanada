@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import zarr
+import torch.distributed as dist
 from empanada.array_utils import put, numpy_fill_instances
 from empanada.zarr_utils import zarr_fill_instances
 from empanada.inference import filters
@@ -47,7 +48,7 @@ def create_axis_trackers(axes, class_labels, label_divisor, shape):
             InstanceTracker(class_id, label_divisor, shape, axis_name)
             for class_id in class_labels
         ]
-        
+
     return trackers
 
 def apply_matchers(rle_seg, matchers):
@@ -126,7 +127,7 @@ def update_trackers(
     stack=None
 ):
     r"""Updates trackers for a given axis with forward and
-    backward matched instance segmentations. Optionally, if a 
+    backward matched instance segmentations. Optionally, if a
     numpy or zarr array is given, it stores the final matched
     panoptic segmentation.
     """
@@ -212,7 +213,7 @@ def create_semantic_consensus(
     consensus_tracker.instances = merge_semantic_from_trackers(class_trackers, pixel_vote_thr)
 
     return consensus_tracker
-    
+
 def fill_volume(volume, instances, processes=4):
     r"""Fills a numpy or zarr array with the given
     run length encoded instances. Runs in-place.
@@ -223,7 +224,7 @@ def fill_volume(volume, instances, processes=4):
         zarr_fill_instances(volume, instances, processes)
     else:
         raise Exception(f'Unknown volume type of {type(volume)}')
-        
+
 #----------------------------------------------------------
 # Utilities for MultiGPU inference
 #----------------------------------------------------------
@@ -292,8 +293,7 @@ def forward_multigpu(
     label_divisor,
     thing_list,
     stuff_area=32,
-    void_label=0,
-    end_signal='finish',
+    void_label=0
 ):
     r"""Handles segmentation median queue, panoptic postprocessing,
     conversion to run length encoded segmentation, and forward matching.
@@ -305,28 +305,27 @@ def forward_multigpu(
 
     while True:
         sem, cells = queue.get()
-        if sem == end_signal:
+        if isinstance(sem, str):
             # all images have been matched!
             break
 
         # update the queue
         median_queue.enqueue({'sem': sem, 'cells': cells})
         median_out = median_queue.get_next(keys=['sem'])
-        median_sem, cells = median_out['sem'], median_out['cells']
 
         # get segmentation if not None
-        if median_sem is not None:
+        if median_out is not None:
+            median_sem, cells = median_out['sem'], median_out['cells']
             median_sem = harden_seg(median_sem, confidence_thr)
             pan_seg = get_panoptic_seg(
                 median_sem, cells, label_divisor,
                 thing_list, stuff_area, void_label
             )
         else:
-            pan_seg = None
             continue
 
         # convert pan seg to rle
-        pan_seg = pan_seg.numpy()
+        pan_seg = pan_seg.squeeze().numpy()
         rle_seg = pan_seg_to_rle_seg(
             pan_seg, labels, label_divisor, thing_list, force_connected=True
         )
@@ -344,7 +343,7 @@ def forward_multigpu(
             thing_list, stuff_area, void_label
         )
 
-        pan_seg = pan_seg.numpy()
+        pan_seg = pan_seg.squeeze().numpy()
         rle_seg = pan_seg_to_rle_seg(
             pan_seg, labels, label_divisor, thing_list, force_connected=True
         )
