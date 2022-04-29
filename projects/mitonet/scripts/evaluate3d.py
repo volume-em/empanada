@@ -91,7 +91,7 @@ if __name__ == "__main__":
     class_labels = config['INFERENCE']['labels']
     thing_list = config['INFERENCE']['engine_params']['thing_list']
     label_divisor = config['INFERENCE']['engine_params']['label_divisor']
-    
+
     # create a separate tracker for
     # each prediction axis and each segmentation class
     trackers = create_axis_trackers(axes, class_labels, label_divisor, shape)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         rle_stack = []
         matcher_out, matcher_in = mp.Pipe()
         matcher_args = (
-            matchers, queue, rle_stack, matcher_in, 
+            matchers, queue, rle_stack, matcher_in,
             class_labels, label_divisor, thing_list
         )
         matcher_proc = mp.Process(target=forward_matching, args=matcher_args)
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     # create the final instance segmentations
     for class_id in config['INFERENCE']['labels']:
         class_name = config['DATASET']['class_names'][class_id]
-        
+
         print(f'Creating consensus segmentation for class {class_name}...')
         class_trackers = get_axis_trackers_by_class(trackers, class_id)
 
