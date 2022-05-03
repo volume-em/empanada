@@ -60,8 +60,6 @@ class SingleClassInstanceDataset(_BaseDataset):
         heatmap, offsets = heatmap_and_offsets(mask, self.heatmap_sigma)
         output['ctr_hmp'] = heatmap
         output['offsets'] = offsets
-
-        fdirs = f.split('/')
         output['fname'] = f
 
         # the last step is to binarize the mask for semantic segmentation
