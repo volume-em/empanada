@@ -62,8 +62,6 @@ class SingleClassInstanceDataset(_BaseDataset):
         output['offsets'] = offsets
 
         fdirs = f.split('/')
-        # subdir is 1 before images dir
-        subdir = fdirs[fdirs.index('images') - 1]
         output['fname'] = f
 
         # the last step is to binarize the mask for semantic segmentation
