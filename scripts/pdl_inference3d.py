@@ -104,12 +104,12 @@ if __name__ == "__main__":
         A.Normalize(**config['norms']),
         ToTensorV2()
     ])
-    
+
     trackers = {}
     class_labels = config['labels']
     thing_list = config['thing_list']
     label_divisor = args.label_divisor
-    
+
     # create a separate tracker for
     # each prediction axis and each segmentation class
     trackers = create_axis_trackers(axes, class_labels, label_divisor, shape)
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         rle_stack = []
         matcher_out, matcher_in = mp.Pipe()
         matcher_args = (
-            matchers, queue, rle_stack, matcher_in, 
+            matchers, queue, rle_stack, matcher_in,
             class_labels, label_divisor, thing_list
         )
         matcher_proc = mp.Process(target=forward_matching, args=matcher_args)
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         num_workers = 8 if zarr_store is not None else 1
         dataloader = DataLoader(
             dataset, batch_size=1, shuffle=False,
-            pin_memory=(device == 'gpu'), drop_last=False, 
+            pin_memory=(device == 'gpu'), drop_last=False,
             num_workers=num_workers
         )
 
@@ -222,7 +222,7 @@ if __name__ == "__main__":
                 consensus_tracker = create_semantic_consensus(class_trackers, args.pixel_vote_thr)
         else:
             consensus_tracker = class_trackers[0]
-            
+
         dtype = np.uint32 if class_id in thing_list else np.uint8
 
         # decode and fill the instances
@@ -235,9 +235,9 @@ if __name__ == "__main__":
         else:
             consensus_vol = np.zeros(shape, dtype=dtype)
             fill_volume(consensus_vol, consensus_tracker.instances)
-            
+
             volpath = os.path.dirname(args.volume_path)
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
-            
+
     print('Finished!')
