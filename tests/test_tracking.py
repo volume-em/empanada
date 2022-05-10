@@ -2,7 +2,6 @@ import os
 import pytest
 import zarr
 import numpy as np
-import torch
 from numpy.testing import assert_equal, assert_almost_equal
 from empanada import array_utils, zarr_utils
 from empanada.inference import rle, tracker
