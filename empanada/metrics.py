@@ -103,11 +103,15 @@ class IoU(_BaseMetric):
 
             # softmax the output
             output = nn.Softmax(dim=1)(output)
+
+            # binarize to most likely class
+            max_probs = torch.max(output, dim=1, keepdim=True)[0]
+            output = (output == max_probs).long()
         else:
-            # sigmoid the output
+            # sigmoid the output and binarize
             output = (torch.sigmoid(output) > 0.5).long()
 
-        # cast target to the correct type for operations
+        # cast target to the correct type
         target = target.type(output.dtype)
 
         # multiply the tensors, everything that is still as 1 is part of the intersection
@@ -116,7 +120,7 @@ class IoU(_BaseMetric):
         intersect = torch.sum(output * target, dims)
 
         # compute the union, (N,)
-        union = torch.sum(output + target, dims) - intersect
+        union = torch.sum(output, dims) + torch.sum(target, dims) - intersect
 
         # avoid division errors by adding a small epsilon
         # evaluates to iou of 1 when intersect and union are 0
