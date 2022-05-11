@@ -44,13 +44,16 @@ def zarr_fill_instances(array, instances, processes=4):
     """
     d, h, w = array.shape
 
+    # make sure number of processes doesn't exceed chunks
+    processes = min(array.nchunks, processes)
+
     # convert instance coords to a z coord
     # and a raveled xy_coord array for each z slice
     instance_coords_2d = {}
     for instance_id, instance_attrs in instances.items():
         starts = instance_attrs['starts']
         ends = starts + instance_attrs['runs']
-    
+
         start_zcoords = starts // (h * w)
         end_zcoords = (ends - 1) // (h * w)
         if not np.allclose(start_zcoords, end_zcoords):
@@ -65,25 +68,25 @@ def zarr_fill_instances(array, instances, processes=4):
 
                 starts = np.insert(starts, loc+1+offset, insert_start)
                 ends = np.insert(ends, loc+1+offset, insert_end)
-                
+
                 start_zcoords = np.insert(start_zcoords, loc+1+offset, start_zcoords[loc+offset] + 1)
-                
+
                 # update the end to stop at last xy coord of z slice
                 ends[loc+offset] = insert_start
                 offset += 1
 
         start_xycoords = starts % (h * w)
-        end_xycoords = ends % (h * w)
-        
+        end_xycoords = (ends - 1) % (h * w)
+
         instance_coords_2d[instance_id] = [start_zcoords, start_xycoords, end_xycoords]
 
     # for each z slice we create an empty dict
-    # that where each instance_id is a key
+    # where each instance_id is a key
     # and the values are xy coordinates for the z slice
     slice_dicts = [{} for i in range(array.shape[0])]
     for instance_id, coords in instance_coords_2d.items():
         z = coords[0]
-        xy = np.stack([coords[1], coords[2]], axis=1) # xy starts and ends
+        xy = np.stack([coords[1], coords[2] + 1], axis=1) # xy starts and ends
 
         # split the coords by unique z slice
         unq_z, section_idx = np.unique(z, return_index=True)
