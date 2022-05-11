@@ -16,9 +16,18 @@ __all__ = [
     'PanopticDeepLabEngine3d',
     'PanopticDeepLabRenderEngine',
     'PanopticDeepLabRenderEngine3d',
-    'BCEngine',
-    'BCEngine3d',
+    'BCEngine', 'BCEngine3d',
 ]
+
+@torch.no_grad()
+def logits_to_prob(logits):
+    # multiclass or binary
+    if logits.size(1) > 1:
+        logits = F.softmax(logits, dim=1)
+    else:
+        logits = torch.sigmoid(logits)
+        
+    return logits
 
 class _Engine:
     def __init__(self, model):
@@ -34,11 +43,6 @@ class _Engine:
 
     def __call__(self, image):
         raise NotImplementedError
-
-class _RenderEngine(_Engine):
-    def __init__(self, model, render_models, **kwargs):
-        super().__init__(model=model, **kwargs)
-        self.render_models = {name: rm.eval() for name, rm in render_models.items()}
 
 class _MedianQueue:
     def __init__(self, median_kernel_size, **kwargs):
@@ -112,25 +116,17 @@ class PanopticDeepLabEngine(_Engine):
         if sem.size(1) > 1: # multiclass segmentation
             sem = torch.argmax(sem, dim=1, keepdim=True)
         else:
-            sem = (sem >= self.confidence_thr).long() # need integers
+            sem = (sem >= self.confidence_thr).long()
 
         return sem
 
     @torch.no_grad()
     def infer(self, image):
-        # run inference
-        with torch.no_grad():
-            model_out = self.model(image)
-            sem_logits = model_out['sem_logits']
-
-            # multiclass or binary logits to probs
-            if sem_logits.size(1) > 1:
-                sem = F.softmax(sem_logits, dim=1)
-            else:
-                sem = torch.sigmoid(sem_logits)
-
+        model_out = self.model(image)
+        
         # notice that sem is NOT sem_logits
-        model_out['sem'] = sem
+        model_out['sem'] = logits_to_prob(model_out['sem_logits'])
+        
         return model_out
 
     @torch.no_grad()
@@ -153,7 +149,7 @@ class PanopticDeepLabEngine(_Engine):
         # infer labels and postprocess
         model_out = self.infer(image)
 
-        # harden the segmentation to (N, 1, H, W)
+        # harden the probabilities: (N, 1, H, W)
         model_out['sem'] = self._harden_seg(model_out['sem'])
 
         pan_seg = self.postprocess(
@@ -217,18 +213,17 @@ class PanopticDeepLabEngine3d(_MedianQueue, PanopticDeepLabEngine):
         if median_out is None:
             # nothing to return, we're building the queue
             return None
-
+        
         pan_seg = self.postprocess(
             self._harden_seg(median_out['sem']), median_out['ctr_hmp'], median_out['offsets']
         )
 
         return pan_seg
 
-class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
+class PanopticDeepLabRenderEngine(PanopticDeepLabEngine):
     def __init__(
         self,
         model,
-        render_models,
         thing_list,
         label_divisor=1000,
         stuff_area=64,
@@ -241,7 +236,7 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         **kwargs
     ):
         super().__init__(
-            model=model, render_models=render_models, thing_list=thing_list,
+            model=model, thing_list=thing_list,
             label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
             nms_threshold=nms_threshold, nms_kernel=nms_kernel,
             confidence_thr=confidence_thr
@@ -251,21 +246,16 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         self.coarse_boundaries = coarse_boundaries
 
     @torch.no_grad()
-    def infer(self, image):
-        return self.model(image)
+    def infer(self, image, render_steps=2):            
+        model_out = self.model(image, render_steps, interpolate_ins=not self.coarse_boundaries)
+        
+        # notice that sem is NOT sem_logits
+        model_out['sem'] = logits_to_prob(model_out['sem_logits'])
+        
+        return model_out
 
     @torch.no_grad()
     def get_instance_cells(self, ctr_hmp, offsets, upsampling=1):
-        # if calculating coarse boundaries then
-        # don't upsample from 1/4th resolution
-        # coarse boundaries are faster and memory friendly
-        # but can look "blocky" in the final segmentation
-        scale_factor = 1 if self.coarse_boundaries else 4
-
-        if scale_factor > 1:
-            ctr_hmp = F.interpolate(ctr_hmp, scale_factor=scale_factor, mode='bilinear', align_corners=True)
-            offsets = F.interpolate(offsets, scale_factor=scale_factor, mode='bilinear', align_corners=True)
-
         # first find the object centers
         ctr = find_instance_center(ctr_hmp, self.nms_threshold, self.nms_kernel)
 
@@ -285,28 +275,6 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         return instance_cells
 
     @torch.no_grad()
-    def upsample_logits(
-        self,
-        sem_logits,
-        coarse_sem_seg_logits,
-        features,
-        scale_factor
-    ):
-        # apply render model
-        if scale_factor >= 2:
-            # each forward pass upsamples sem_logits by a factor of 2
-            for _ in range(int(math.log(scale_factor, 2))):
-                sem_logits = self.render_models['sem_logits'](sem_logits, coarse_sem_seg_logits, features)
-
-        # apply classification activation
-        if sem_logits.size(1) > 1:
-            sem = F.softmax(sem_logits, dim=1)
-        else:
-            sem = torch.sigmoid(sem_logits)
-
-        return sem, sem_logits
-
-    @torch.no_grad()
     def get_panoptic_seg(self, sem, instance_cells):
         # keep only label for instance classes
         instance_seg = torch.zeros_like(sem)
@@ -324,15 +292,7 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         return pan_seg
 
     @torch.no_grad()
-    def postprocess(self, coarse_sem_seg_logits, features, instance_cells, upsampling=1):
-        sem_logits = coarse_sem_seg_logits.clone()
-
-        # seg to be upsampled by factor of 4 and then
-        # by factor of upsample
-        sem, sem_logits = self.upsample_logits(
-            sem_logits, coarse_sem_seg_logits, features, upsampling * 4
-        )
-
+    def postprocess(self, sem, instance_cells):
         # harden the segmentation
         sem = self._harden_seg(sem)[0]
         return self.get_panoptic_seg(sem, instance_cells)
@@ -351,16 +311,13 @@ class PanopticDeepLabRenderEngine(_RenderEngine, PanopticDeepLabEngine):
         image = self.to_model_device(image)
 
         # infer labels
-        model_out = self.infer(image)
+        model_out = self.infer(image, int(2 + math.log(upsampling, 2)))
 
         # calculate the instance cells
         instance_cells = self.get_instance_cells(
             model_out['ctr_hmp'], model_out['offsets'], upsampling
         )
-        pan_seg = self.postprocess(
-            model_out['sem_logits'], model_out['semantic_x'],
-            instance_cells, upsampling
-        )
+        pan_seg = self.postprocess(model_out['sem'], instance_cells)
 
         # remove padding from the pan_seg
         pan_seg = pan_seg[..., :h, :w]
@@ -371,7 +328,6 @@ class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
     def __init__(
         self,
         model,
-        render_models,
         thing_list,
         label_divisor=1000,
         stuff_area=64,
@@ -385,7 +341,7 @@ class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
         **kwargs
     ):
         super().__init__(
-            model=model, render_models=render_models, thing_list=thing_list,
+            model=model, thing_list=thing_list,
             label_divisor=label_divisor, stuff_area=stuff_area, void_label=void_label,
             nms_threshold=nms_threshold, nms_kernel=nms_kernel,
             confidence_thr=confidence_thr, median_kernel_size=median_kernel_size,
@@ -399,8 +355,8 @@ class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
         for model_out in list(self.median_queue)[self.mid_idx + 1:]:
             h, w = model_out['size']
             instance_cells = self.get_instance_cells(model_out['ctr_hmp'], model_out['offsets'], upsampling)
-            pan_seg = self.postprocess(model_out['sem_logits'], model_out['semantic_x'], instance_cells, upsampling)
-            final_segs.append(pan_seg[..., :(h * upsampling), :(w * upsampling)])
+            pan_seg = self.postprocess(model_out['sem'], instance_cells)
+            final_segs.append(pan_seg[..., :h, :w])
 
         return final_segs
 
@@ -418,19 +374,19 @@ class PanopticDeepLabRenderEngine3d(_MedianQueue, PanopticDeepLabRenderEngine):
         image = self.to_model_device(image)
 
         # infer labels
-        model_out = self.infer(image)
+        model_out = self.infer(image, int(2 + math.log(upsampling, 2)))
         model_out['size'] = size
-
+        
         # append results to median queue
         self.enqueue(model_out)
-        median_out = self.get_next(keys=['sem_logits'])
+        median_out = self.get_next(keys=['sem'])
         if median_out is None:
             # nothing to return, we're building the queue
             return None
 
         # calculate the instance cells
         instance_cells = self.get_instance_cells(median_out['ctr_hmp'], median_out['offsets'], upsampling)
-        pan_seg = self.postprocess(median_out['sem_logits'], median_out['semantic_x'], instance_cells, upsampling)
+        pan_seg = self.postprocess(median_out['sem'], instance_cells)
 
         # remove padding from the pan_seg
         pan_seg = pan_seg[..., :h, :w]

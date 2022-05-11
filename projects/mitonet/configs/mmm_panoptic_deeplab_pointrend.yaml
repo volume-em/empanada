@@ -91,7 +91,6 @@ TRAIN:
   dataset_params:
       weight_gamma: 0.7
   
-
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}
     - { aug: "PadIfNeeded", min_height: 256, min_width: 256, border_mode: 0 }

@@ -2,6 +2,7 @@ import os
 import json
 import math
 import numpy as np
+from copy import deepcopy
 from skimage import measure
 from itertools import combinations
 from tqdm import tqdm
@@ -129,7 +130,7 @@ class InstanceTracker:
         if not self.finished:
             self.finish()
 
-        save_dict = self.__dict__
+        save_dict = deepcopy(self.__dict__)
         # convert instance coords to string
         for k in save_dict['instances'].keys():
             starts = save_dict['instances'][k]['starts']
