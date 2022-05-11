@@ -231,25 +231,4 @@ if __name__ == "__main__":
             volname = os.path.basename(args.volume_path).replace('.tif', f'_{class_name}.tif')
             io.imsave(os.path.join(volpath, volname), consensus_vol)
             
-        consensus_tracker.write_to_json(os.path.join(args.volume_path, f'infer_{class_name}_pred.json'))
-        #print('Tracker keys', consensus_tracker.instances.keys())
-            
-    #print('Finished!')
-    
-    from empanada.evaluation import *
-    
-    # run evaluation
-    semantic_metrics = {'IoU': iou}
-    instance_metrics = {'F1_50': f1_50, 'F1_75': f1_75, 'Precision_50': precision_50,
-                        'Precision_75': precision_75, 'Recall_50': recall_50, 'Recall_75': recall_75}
-    panoptic_metrics = {'PQ': panoptic_quality}
-    evaluator = Evaluator(semantic_metrics, instance_metrics, panoptic_metrics)
-
-    for class_id, class_name in config['class_names'].items():
-        gt_json = os.path.join(args.volume_path, f'{class_name}_gt.json')
-        pred_json = os.path.join(args.volume_path, f'infer_{class_name}_pred.json')
-        results = evaluator(gt_json, pred_json)
-        results = {f'{class_name}_{k}': v for k,v in results.items()}
-
-        for k, v in results.items():
-            print(k, v)
+    print('Finished!')
