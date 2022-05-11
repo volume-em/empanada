@@ -65,7 +65,6 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() and not args.use_cpu else "cpu")
     use_quantized = str(device) == 'cpu' and config.get('model_quantized') is not None
     model_key = 'model_quantized' if use_quantized  else 'model'
-    print(model_key)
     
     if os.path.isfile(config[model_key]):
         model = torch.jit.load(config[model_key])
