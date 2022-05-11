@@ -9,10 +9,7 @@ import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.backends.cudnn as cudnn
-import torch.multiprocessing as mp
-import torch.distributed as dist
 from torch.utils.data import DataLoader, WeightedRandomSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 
 import albumentations as A
@@ -24,15 +21,9 @@ from matplotlib import pyplot as plt
 from empanada import losses
 from empanada import data
 from empanada import metrics
-from empanada import models
 from empanada.inference import engines
 from empanada.config_loaders import load_config
-from empanada.data.utils.sampler import DistributedWeightedSampler
 from empanada.data.utils.transforms import FactorPad
-
-archs = sorted(name for name in models.__dict__
-    if callable(models.__dict__[name])
-)
 
 schedules = sorted(name for name in lr_scheduler.__dict__
     if callable(lr_scheduler.__dict__[name]) and not name.startswith('__')
@@ -63,7 +54,7 @@ loss_names = sorted(name for name in losses.__dict__
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs panoptic deeplab training')
-    parser.add_argument('config', type=str, metavar='config', help='Path to a config yaml file')
+    parser.add_argument('config', type=str, metavar='config', help='Path to a training config yaml file')
     return parser.parse_args()
 
 def main():
@@ -71,7 +62,13 @@ def main():
 
     # read the config file
     config = load_config(args.config)
-
+    
+    # load the model config
+    model_config = load_config(config['MODEL']['config'])
+    config['FINETUNE'] = model_config['FINETUNE']
+    del model_config['FINETUNE']
+    config['MODEL'] = model_config
+    
     config['config_file'] = args.config
     config['config_name'] = os.path.basename(args.config).split('.yaml')[0]
 
@@ -80,83 +77,25 @@ def main():
         os.mkdir(config['TRAIN']['model_dir'])
 
     # validate parameters
-    assert config['MODEL']['arch'] in archs
     assert config['TRAIN']['lr_schedule'] in schedules
     assert config['TRAIN']['optimizer'] in optimizers
-    assert config['TRAIN']['criterion'] in loss_names
-    assert config['EVAL']['engine'] in engine_names
+    assert config['FINETUNE']['criterion'] in loss_names
+    assert config['FINETUNE']['engine'] in engine_names
 
-    if config['TRAIN']['dist_url'] == "env://" and config['TRAIN']['world_size'] == -1:
-        config['TRAIN']['world_size'] = int(os.environ["WORLD_SIZE"])
+    main_worker(config)
 
-    ngpus_per_node = torch.cuda.device_count()
-    if config['TRAIN']['multiprocessing_distributed']:
-        # Since we have ngpus_per_node processes per node, the total world_size
-        # needs to be adjusted accordingly
-        config['TRAIN']['world_size'] = ngpus_per_node * config['TRAIN']['world_size']
-        # Use torch.multiprocessing.spawn to launch distributed processes: the
-        # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, config))
-    else:
-        # Simply call main_worker function
-        main_worker(config['TRAIN']['gpu'], ngpus_per_node, config)
+def main_worker(config):
+    config['device'] = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def main_worker(gpu, ngpus_per_node, config):
-    config['gpu'] = gpu
-
-    if config['gpu'] is not None:
-        print(f"Use GPU: {gpu} for training")
-
-    if config['TRAIN']['multiprocessing_distributed']:
-        if config['TRAIN']['dist_url'] == "env://" and config['TRAIN']['rank'] == -1:
-            config['TRAIN']['rank'] = int(os.environ["RANK"])
-        if config['TRAIN']['multiprocessing_distributed']:
-            # For multiprocessing distributed training, rank needs to be the
-            # global rank among all the processes
-            config['TRAIN']['rank'] = config['TRAIN']['rank'] * ngpus_per_node + config['gpu']
-
-        dist.init_process_group(backend=config['TRAIN']['dist_backend'], init_method=config['TRAIN']['dist_url'],
-                                world_size=config['TRAIN']['world_size'], rank=config['TRAIN']['rank'])
+    if str(config['device']) == 'cpu':
+        print(f"Using CPU for training.")
 
     # setup the model and pick dataset class
-    model_arch = config['MODEL']['arch']
-    model = models.__dict__[model_arch](**config['MODEL'])
-    dataset_class_name = config['TRAIN']['dataset_class']
+    model = torch.jit.load(config['MODEL']['model'], map_location=config['device'])
+    dataset_class_name = config['FINETUNE']['dataset_class']
     data_cls = data.__dict__[dataset_class_name]
-
-    # load pre-trained weights, if using
-    if config['TRAIN']['whole_pretraining'] is not None:
-        state = torch.load(config['TRAIN']['whole_pretraining'], map_location='cpu')
-        state_dict = state['state_dict']
-
-        # remove the prefix 'module' from all of the keys
-        for k in list(state_dict.keys()):
-            if k.startswith('module'):
-                state_dict[k[len('module.'):]] = state_dict[k]
-
-            # delete renamed or unused k
-            del state_dict[k]
-
-        msg = model.load_state_dict(state['state_dict'], strict=True)
-        norms = state['norms']
-    elif config['TRAIN']['encoder_pretraining'] is not None:
-        state = torch.load(config['TRAIN']['encoder_pretraining'], map_location='cpu')
-        state_dict = state['state_dict']
-
-        # add the prefix 'encoder' to all of the keys
-        for k in list(state_dict.keys()):
-            if not k.startswith('fc'):
-                state_dict['encoder.' + k] = state_dict[k]
-
-            # delete renamed or unused k
-            del state_dict[k]
-
-        msg = model.load_state_dict(state['state_dict'], strict=False)
-        norms = {}
-        norms['mean'] = state['norms'][0]
-        norms['std'] = state['norms'][1]
-    else:
-        norms = config['DATASET']['norms']
+    
+    norms = config['MODEL']['norms']
 
     finetune_layer = config['TRAIN']['finetune_layer']
     # start by freezing all encoder parameters
@@ -185,41 +124,7 @@ def main_worker(gpu, ngpus_per_node, config):
 
     num_trainable = sum(p[1].numel() for p in model.named_parameters() if p[1].requires_grad)
     print(f'Model with {num_trainable} trainable parameters.')
-
-    if not torch.cuda.is_available():
-        print('Using CPU, this will be slow')
-    elif config['TRAIN']['multiprocessing_distributed']:
-        # use Synced batchnorm
-        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
-        # For multiprocessing distributed, DistributedDataParallel constructor
-        # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
-        if config['gpu'] is not None:
-            torch.cuda.set_device(config['gpu'])
-            model.cuda(config['gpu'])
-            # When using a single GPU per process and per
-            # DistributedDataParallel, we need to divide the batch size
-            # ourselves based on the total number of GPUs we have
-            config['TRAIN']['batch_size'] = int(config['TRAIN']['batch_size'] / ngpus_per_node)
-            config['TRAIN']['workers'] = int((config['TRAIN']['workers'] + ngpus_per_node - 1) / ngpus_per_node)
-            model = DDP(model, device_ids=[config['gpu']])
-        else:
-            model.cuda()
-            # DistributedDataParallel will divide and allocate batch_size to all
-            # available GPUs if device_ids are not set
-            model = DDP(model)
-    elif config['gpu'] is not None:
-        torch.cuda.set_device(config['gpu'])
-        model = model.cuda(config['gpu'])
-    else:
-        # script the model
-        #model = torch.jit.script(model, optimize=True)
-        model = torch.nn.DataParallel(model).cuda()
-        #raise Exception
-
-    cudnn.benchmark = True
-
+    
     # set the training image augmentations
     config['aug_string'] = []
     dataset_augs = []
@@ -245,23 +150,25 @@ def main_worker(gpu, ngpus_per_node, config):
     ])
 
     # create training dataset and loader
-    train_dataset = data_cls(config['TRAIN']['train_dir'], transforms=tfs, **config['TRAIN']['dataset_params'])
+    train_dataset = data_cls(config['TRAIN']['train_dir'], transforms=tfs, **config['FINETUNE']['dataset_params'])
     if config['TRAIN']['additional_train_dirs'] is not None:
         for train_dir in config['TRAIN']['additional_train_dirs']:
-            add_dataset = data_cls(train_dir, transforms=tfs, **config['TRAIN']['dataset_params'])
+            add_dataset = data_cls(train_dir, transforms=tfs, **config['FINETUNE']['dataset_params'])
             train_dataset = train_dataset + add_dataset
 
-    if config['TRAIN']['multiprocessing_distributed']:
-        if config['TRAIN']['dataset_params']['weight_gamma'] is None:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = DistributedWeightedSampler(train_dataset, train_dataset.weights)
-    elif config['TRAIN']['dataset_params']['weight_gamma'] is not None:
+    if config['FINETUNE']['dataset_params']['weight_gamma'] is not None:
         train_sampler = WeightedRandomSampler(train_dataset.weights, len(train_dataset))
     else:
         train_sampler = None
+        
+    assert len(train_dataset) >= 16, "Finetuning requires at least 16 images!"
 
     # num workers always less than number of batches in train dataset
+    adj_batch_size = (len(train_dataset) // 16) * 16
+    if config['TRAIN']['batch_size'] > adj_batch_size:
+        config['TRAIN']['batch_size'] = adj_batch_size
+        print('Decreased batch size to', adj_batch_size)
+    
     num_workers = min(config['TRAIN']['workers'], len(train_dataset) // config['TRAIN']['batch_size'])
 
     train_loader = DataLoader(
@@ -276,7 +183,7 @@ def main_worker(gpu, ngpus_per_node, config):
             A.Normalize(**norms),
             ToTensorV2()
         ])
-        eval_dataset = data_cls(config['EVAL']['eval_dir'], transforms=eval_tfs, **config['TRAIN']['dataset_params'])
+        eval_dataset = data_cls(config['EVAL']['eval_dir'], transforms=eval_tfs, **config['FINETUNE']['dataset_params'])
         # evaluation runs on a single gpu
         eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False,
                                  pin_memory=torch.cuda.is_available(),
@@ -290,12 +197,11 @@ def main_worker(gpu, ngpus_per_node, config):
     else:
         eval_loader = None
 
+    cudnn.benchmark = True
+
     # set criterion
-    criterion_name = config['TRAIN']['criterion']
-    if config['gpu'] is not None:
-        criterion = losses.__dict__[criterion_name](**config['TRAIN']['criterion_params']).cuda(config['gpu'])
-    else:
-        criterion = losses.__dict__[criterion_name](**config['TRAIN']['criterion_params']).cuda()
+    criterion_name = config['FINETUNE']['criterion']
+    criterion = losses.__dict__[criterion_name](**config['FINETUNE']['criterion_params']).to(config['device'])
 
     # set optimizer and lr scheduler
     opt_name = config['TRAIN']['optimizer']
@@ -325,8 +231,7 @@ def main_worker(gpu, ngpus_per_node, config):
                 checkpoint = torch.load(config['TRAIN']['resume'])
             else:
                 # Map model to be loaded to specified single gpu.
-                loc = 'cuda:{}'.format(config['gpu'])
-                checkpoint = torch.load(config['TRAIN']['resume'], map_location=loc)
+                checkpoint = torch.load(config['TRAIN']['resume'], map_location=config['device'])
 
             config['start_epoch'] = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict'])
@@ -358,43 +263,31 @@ def main_worker(gpu, ngpus_per_node, config):
     prepare_logging(config)
 
     for epoch in range(config['start_epoch'], epochs):
-        if config['TRAIN']['multiprocessing_distributed']:
-            train_sampler.set_epoch(epoch)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer,
               scheduler, scaler, epoch, config)
 
-        is_distributed = config['TRAIN']['multiprocessing_distributed']
-        gpu_rank = config['TRAIN']['rank'] % ngpus_per_node
-
-        # evaluate on validation set, does not support multiGPU
+        # evaluate on validation set
         if eval_loader is not None and (epoch + 1) % config['EVAL']['epochs_per_eval'] == 0:
-            if not is_distributed or (is_distributed and gpu_rank == 0):
-                validate(eval_loader, model, criterion, epoch, config)
+            validate(eval_loader, model, criterion, epoch, config)
 
         save_now = (epoch + 1) % config['TRAIN']['save_freq'] == 0
-        if save_now and not is_distributed or (is_distributed and gpu_rank == 0):
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': config['MODEL']['arch'],
-                'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-                'scaler': scaler.state_dict(),
-                'run_id': mlflow.active_run().info.run_id,
-                'norms': norms
-            }, os.path.join(config['TRAIN']['model_dir'], f"{config['config_name']}_checkpoint.pth.tar"))
-
-def save_checkpoint(state, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
+        if save_now:
+            outpath = os.path.join(config['TRAIN']['model_dir'], f"{config['config_name']}_{config['dataset_name']}")
+            torch.jit.save(model, outpath + '.pth')
+            
+            config['MODEL']['model'] = outpath + '.pth'
+            config['MODEL']['model_quantized'] = None
+            with open(outpath + '.yaml', mode='w') as f:
+                yaml.dump({'FINETUNE': config['FINETUNE'], **config['MODEL']}, f)
 
 def prepare_logging(config):
     # log parameters for run, or resume existing run
-    if config['run_id'] is None and config['TRAIN']['rank'] == 0:
+    if config['run_id'] is None:
         # log parameters in mlflow
         mlflow.end_run()
-        mlflow.set_experiment(config['DATASET']['dataset_name'])
+        mlflow.set_experiment(config['dataset_name'])
 
         # log the full config file after inheritance
         artifact_path = 'mlruns/' + mlflow.get_artifact_uri().split('/mlruns/')[-1]
@@ -406,9 +299,7 @@ def prepare_logging(config):
         #to mlflow parameters, we'll just add the most
         #likely to change parameters
         mlflow.log_param('run_name', config['TRAIN']['run_name'])
-        mlflow.log_param('architecture', config['MODEL']['arch'])
-        mlflow.log_param('encoder_pretraining', config['TRAIN']['encoder_pretraining'])
-        mlflow.log_param('whole_pretraining', config['TRAIN']['whole_pretraining'])
+        mlflow.log_param('model_file', config['MODEL']['model'])
         mlflow.log_param('epochs', config['TRAIN']['epochs'])
         mlflow.log_param('batch_size', config['TRAIN']['batch_size'])
         mlflow.log_param('lr_schedule', config['TRAIN']['lr_schedule'])
@@ -497,7 +388,7 @@ def train(
     )
 
     # end of epoch metrics
-    class_names = config['DATASET']['class_names']
+    class_names = config['MODEL']['class_names']
     metric_dict = {}
     for metric_params in config['TRAIN']['metrics']:
         reg_name = metric_params['name']
@@ -518,11 +409,9 @@ def train(
         images = batch['image']
         target = {k: v for k,v in batch.items() if k not in ['image', 'fname']}
 
-        if config['gpu'] is not None:
-            images = images.cuda(config['gpu'], non_blocking=True)
-        if torch.cuda.is_available():
-            target = {k: tensor.cuda(config['gpu'], non_blocking=True)
-                      for k,tensor in target.items()}
+        images = images.to(config['device'], non_blocking=True)
+        target = {k: tensor.to(config['device'], non_blocking=True)
+                  for k,tensor in target.items()}
 
         # zero grad before running
         optimizer.zero_grad()
@@ -582,7 +471,7 @@ def validate(
     config
 ):
     # validation metrics to track
-    class_names = config['DATASET']['class_names']
+    class_names = config['MODEL']['class_names']
     metric_dict = {}
     for metric_params in config['EVAL']['metrics']:
         reg_name = metric_params['name']
@@ -603,19 +492,17 @@ def validate(
     )
 
     # create the Inference Engine
-    engine_name = config['EVAL']['engine']
-    engine = engines.__dict__[engine_name](model, **config['EVAL']['engine_params'])
+    engine_name = config['FINETUNE']['engine']
+    engine = engines.__dict__[engine_name](model, **config['FINETUNE']['engine_params'])
 
     for i, batch in enumerate(eval_loader):
         end = time.time()
         images = batch['image']
         target = {k: v for k,v in batch.items() if k not in ['image', 'fname']}
 
-        if config['gpu'] is not None:
-            images = images.cuda(config['gpu'], non_blocking=True)
-        if torch.cuda.is_available():
-            target = {k: tensor.cuda(config['gpu'], non_blocking=True)
-                      for k,tensor in target.items()}
+        images = images.to(config['device'], non_blocking=True)
+        target = {k: tensor.to(config['device'], non_blocking=True)
+                  for k,tensor in target.items()}
 
         # compute panoptic segmentations
         # from prediction and ground truth

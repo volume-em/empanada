@@ -6,10 +6,7 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from empanada import data
 from torch.utils.data import DataLoader, WeightedRandomSampler
-
 from empanada.models import quantization as quant_models
-from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
-
 from empanada.config_loaders import load_config
 
 augmentations = sorted(name for name in A.__dict__
@@ -26,9 +23,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Exports an optionally quantized panoptic deeplab model')
     parser.add_argument('config', type=str, metavar='config', help='Path to a config yaml file')
     parser.add_argument('save_path', type=str, metavar='save_path', help='Path to a save the quantized model')
-    parser.add_argument('-nc', type=int, default=32, metavar='nc', help='Number of calibration batches for quantization')
     parser.add_argument('-pf', type=int, default=128, metavar='pf',
                         help='Factor by which image dimensions must be divisible for model inference')
+    parser.add_argument('-nc', type=int, default=32, metavar='nc', help='Number of calibration batches for quantization')
+    parser.add_argument('--quantize', action='store_true', help='If given, model will be quantized to optimize CPU performance.')
     return parser.parse_args()
 
 def create_dataloader(config, norms):
@@ -39,7 +37,7 @@ def create_dataloader(config, norms):
     for aug_params in config['TRAIN']['augmentations']:
         aug_name = aug_params['aug']
 
-        assert aug_name in augmentations \
+        assert aug_name in augmentations, \
         f'{aug_name} is not a valid augmentation!'
 
         config['aug_string'].append(aug_params['aug'])
@@ -52,7 +50,7 @@ def create_dataloader(config, norms):
         *dataset_augs,
         A.Normalize(**norms),
         ToTensorV2()
-    ], bbox_params=A.BboxParams(format="pascal_voc", min_visibility=0.05))
+    ])
 
     # create training dataset and loader
     dataset_class_name = config['TRAIN']['dataset_class']
@@ -97,8 +95,7 @@ def main():
 
     # validate parameters
     model_arch = config['MODEL']['arch']
-    base_arch = model_arch[:-len('PR')]
-    base_quant_arch = 'Quantizable' + base_arch
+    quant_arch = 'Quantizable' + model_arch
 
     # load the state
     state = torch.load(model_fpath, map_location='cpu')
@@ -112,83 +109,83 @@ def main():
             # delete renamed or unused k
             del state_dict[k]
 
-    # prep state dict for base and render models
-    base_state_dict = {}
-    pr_state_dict = {}
+    model = quant_models.__dict__[quant_arch](**config['MODEL'], quantize=False)
 
-    for key in list(state_dict.keys()):
-        if key.startswith('semantic_pr.'):
-            pr_state_dict[key[len('semantic_pr.'):]] = state_dict[key]
-        else:
-            base_state_dict[key] = state_dict[key]
+    # prep the model
+    model.load_state_dict(state_dict)
+    model.fuse_model()
+    model.cuda()
+    model = torch.jit.script(model)
+    
+    print('Model scripted successfully.')
+    
+    model_out = os.path.join(save_path, f'{model_arch}_{config_name}.pth')
+    torch.jit.save(model, model_out)
+    print('Exported model successfully.')
+    
+    # NOTE: Do this after saving or model performance is degraded
+    with torch.no_grad():
+        x = torch.randn((1, 1, 256, 256)).cuda()
+        output = model(x)
+            
+    print('Validated forward pass.')
 
-    # create the GPU and CPU versions of the models
-    pr_nin = config['MODEL']['fpn_dim'] if 'fpn_dim' in config['MODEL'] else config['MODEL']['decoder_channels']
-    gpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=False)
-    gpu_render_model = QuantizablePointRendSemSegHead(nin=pr_nin ,**config['MODEL'])
+    # make the CPU model with quantization
+    if args.quantize:
+        print('Quantizing model...')
+        cpu_model = quant_models.__dict__[quant_arch](**config['MODEL'], quantize=True)
+        cpu_model.load_state_dict(state_dict)
+        cpu_model.eval()
+        cpu_model.fuse_model()
 
-    # load the state dicts
-    gpu_base_model.load_state_dict(base_state_dict, strict=True)
-    gpu_render_model.load_state_dict(pr_state_dict, strict=True)
+        # specify quantization configuration
+        cpu_model.set_qconfig('fbgemm')
+        torch.quantization.prepare(cpu_model, inplace=True)
 
-    # export the gpu models
-    gpu_base_model.eval()
-    gpu_base_model.fuse_model()
-    gpu_base_model.cuda()
-    gpu_base_model = torch.jit.script(gpu_base_model)
+        # calibrate with the training set
+        train_loader = create_dataloader(config, norms)
+        for i in range(num_calibration_batches):
+            batch = iter(train_loader).next()
+            print(f'Calibration batch {i + 1} of {num_calibration_batches}')
+            with torch.no_grad():
+                images = batch['image']
+                output = cpu_model(images)
 
-    gpu_render_model.eval()
-    gpu_render_model.cuda()
-    gpu_render_model = torch.jit.script(gpu_render_model)
+        torch.quantization.convert(cpu_model, inplace=True)
+        print('Model quantized successfully.')
 
-    torch.jit.save(gpu_base_model, os.path.join(save_path, f'{model_arch}_{config_name}_base_gpu.pth'))
-    torch.jit.save(gpu_render_model, os.path.join(save_path, f'{model_arch}_{config_name}_render_gpu.pth'))
-    print('Exported GPU models successfully!')
-
-    cpu_base_model = quant_models.__dict__[base_quant_arch](**config['MODEL'], quantize=True)
-    cpu_render_model = QuantizablePointRendSemSegHead(nin=pr_nin, **config['MODEL'])
-    cpu_base_model.load_state_dict(base_state_dict, strict=True)
-    cpu_render_model.load_state_dict(pr_state_dict, strict=True)
-
-    print('Quantizing model...')
-
-    # create the data loader
-    train_loader = create_dataloader(config, norms)
-
-    cpu_base_model.eval()
-    cpu_base_model.fuse_model()
-    cpu_render_model.eval()
-
-    # specify quantization configuration
-    cpu_base_model.set_qconfig('fbgemm')
-    torch.quantization.prepare(cpu_base_model, inplace=True)
-
-    # calibrate with the training set
-    for i in range(num_calibration_batches):
-        batch = iter(train_loader).next()
-        print(f'Calibration batch {i + 1} of {num_calibration_batches}')
+        cpu_model = torch.jit.script(cpu_model)
+        
+        cpu_model_out = os.path.join(save_path, f'{model_arch}_{config_name}_quantized.pth')
+        torch.jit.save(cpu_model, cpu_model_out)
+        print('Exported quantized model successfully.')
+        
         with torch.no_grad():
-            images = batch['image']
-            output = cpu_base_model(images)
-
-    torch.quantization.convert(cpu_base_model, inplace=True)
-    print('Model quantized successfully!')
-
-    torch.jit.save(torch.jit.script(cpu_base_model), os.path.join(save_path, f'{model_arch}_{config_name}_base_cpu.pth'))
-    torch.jit.save(torch.jit.script(cpu_render_model), os.path.join(save_path, f'{model_arch}_{config_name}_render_cpu.pth'))
-    print('Exported CPU models successfully!')
+            x = torch.randn((1, 1, 256, 256))
+            output = cpu_model(x)
+            
+        print('Validated forward pass.')
+    else:
+        cpu_model_out = None
 
     # export a yaml file describing the models
+    finetune_params = {
+        'dataset_class': config['TRAIN']['dataset_class'],
+        'dataset_params': config['TRAIN']['dataset_params'],
+        'criterion': config['TRAIN']['criterion'],
+        'criterion_params': config['TRAIN']['criterion_params'],
+        'engine': config['EVAL']['engine'],
+        'engine_params': config['EVAL']['engine_params'],
+    }
     desc = {
-        'base_model_cpu': os.path.join(os.path.abspath(save_path), f'{model_arch}_{config_name}_base_cpu.pth'),
-        'render_model_cpu': os.path.join(os.path.abspath(save_path), f'{model_arch}_{config_name}_render_cpu.pth'),
-        'base_model_gpu': os.path.join(os.path.abspath(save_path), f'{model_arch}_{config_name}_base_gpu.pth'),
-        'render_model_gpu': os.path.join(os.path.abspath(save_path), f'{model_arch}_{config_name}_render_gpu.pth'),
+        'model': model_out,
+        'model_quantized': cpu_model_out,
         'norms': {'mean': norms['mean'], 'std': norms['std']},
         'padding_factor': args.pf,
-        'labels': config['DATASET']['labels'],
         'thing_list': config['DATASET']['thing_list'],
-        'class_names': config['DATASET']['class_names']
+        'labels': config['DATASET']['labels'],
+        'class_names': config['DATASET']['class_names'],
+        'FINETUNE': finetune_params
     }
 
     with open(os.path.join(save_path, f'{model_arch}_{config_name}.yaml'), mode='w') as f:

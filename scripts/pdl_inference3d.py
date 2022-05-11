@@ -27,7 +27,7 @@ def parse_args():
                         default='orthoplane', help='Pick orthoplane (xy, xz, yz) or stack (xy)')
     parser.add_argument('-qlen', type=int, dest='qlen', metavar='qlen', choices=[1, 3, 5, 7, 9, 11],
                         default=3, help='Length of median filtering queue, an odd integer')
-    parser.add_argument('-nmax', type=int, dest='label_divisor', metavar='label_divisor', choices=['orthoplane', 'stack'],
+    parser.add_argument('-nmax', type=int, dest='label_divisor', metavar='label_divisor',
                         default=20000, help='Maximum number of objects per instance class allowed in volume.')
     parser.add_argument('-seg-thr', type=float, dest='seg_thr', metavar='seg_thr', default=0.3,
                         help='Segmentation confidence threshold (0-1)')
@@ -61,25 +61,18 @@ if __name__ == "__main__":
     # read the model config file
     config = load_config(args.config)
 
-    # load the base and render models from file or url
-    device = 'gpu' if torch.cuda.is_available() and not args.use_cpu else 'cpu'
-    if os.path.isfile(config[f'base_model_{device}']):
-        base_model = torch.jit.load(config[f'base_model_{device}'])
+    # set device and determine model to load
+    device = torch.device("cuda:0" if torch.cuda.is_available() and not args.use_cpu else "cpu")
+    use_quantized = str(device) == 'cpu' and config.get('model_quantized') is not None
+    model_key = 'model_quantized' if use_quantized  else 'model'
+    
+    if os.path.isfile(config[model_key]):
+        model = torch.jit.load(config[model_key])
     else:
-        base_model = torch.hub.load_state_dict_from_url(config[f'base_model_{device}'])
+        model = torch.hub.load_state_dict_from_url(config[model_key])
 
-    if os.path.isfile(config[f'render_model_{device}']):
-        render_model = torch.jit.load(config[f'render_model_{device}'])
-    else:
-        render_model = torch.hub.load_state_dict_from_url(config[f'render_model_{device}'])
-
-    if device == 'gpu':
-        base_model = base_model.cuda()
-        render_model = render_model.cuda()
-
-    # switch the models to eval mode
-    base_model.eval()
-    render_model.eval()
+    model = model.to(device)
+    model.eval()
 
     # load the volume
     if '.zarr' in args.volume_path:
@@ -106,7 +99,7 @@ if __name__ == "__main__":
     ])
 
     trackers = {}
-    class_labels = config['labels']
+    class_labels = config['class_names'].keys()
     thing_list = config['thing_list']
     label_divisor = args.label_divisor
 
@@ -132,10 +125,8 @@ if __name__ == "__main__":
             stack = None
 
         # create the inference engine
-        render_models = {'sem_logits': render_model}
         inference_engine = PanopticDeepLabRenderEngine3d(
-            base_model, render_models,
-            thing_list=thing_list,
+            model, thing_list=thing_list,
             median_kernel_size=args.qlen,
             label_divisor=label_divisor,
             nms_threshold=args.nms_thr,
@@ -178,14 +169,13 @@ if __name__ == "__main__":
             pan_seg = inference_engine(image, size, upsampling=args.downsample_f)
 
             if pan_seg is None:
-                # building the median queue
                 queue.put(None)
                 continue
             else:
                 pan_seg = pan_seg.squeeze().cpu().numpy()
                 queue.put(pan_seg)
 
-        final_segs = inference_engine.end()
+        final_segs = inference_engine.end(args.downsample_f)
         if final_segs:
             for i, pan_seg in enumerate(final_segs):
                 pan_seg = pan_seg.squeeze().cpu().numpy()
@@ -206,7 +196,7 @@ if __name__ == "__main__":
             filters.remove_pancakes(tracker, min_span=args.min_span)
 
     # create the final instance segmentations
-    for class_id, class_name in zip(config['labels'], config['class_names']):
+    for class_id, class_name in config['class_names'].items():
         print(f'Creating consensus segmentation for class {class_name}...')
         class_trackers = get_axis_trackers_by_class(trackers, class_id)
 
