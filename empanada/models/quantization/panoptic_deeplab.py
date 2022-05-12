@@ -97,7 +97,7 @@ class QuantizablePanopticDeepLab(nn.Module):
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
     
-    def set_qconfig(self, observer='fbgemm'):
+    def fix_qconfig(self, observer='fbgemm'):
         self.qconfig = torch.quantization.get_default_qconfig(observer)
 
     def _encode_decode(self, x):
@@ -130,7 +130,7 @@ class QuantizablePanopticDeepLab(nn.Module):
             
     def forward(self, x):
         x = self.quant(x)
-            
+        
         pyramid_features, semantic_x, instance_x = self._encode_decode(x)
         output: Dict[str, torch.Tensor] = self._apply_heads(semantic_x, instance_x)
             
@@ -167,8 +167,31 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             subdivision_num_points, quantize=kwargs['quantize']
         )
         
-    def set_qconfig(self, observer='fbgemm'):
-        self.config = torch.quantization.get_default_qconfig(observer)
+    def fix_qconfig(self, observer='fbgemm'):
+        self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.semantic_decoder.qconfig = torch.quantization.get_default_qconfig(observer)
+        if self.instance_decoder is not None:
+            self.instance_decoder.qconfig = torch.quantization.get_default_qconfig(observer)
+            
+        self.semantic_head.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.ins_center.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.ins_xy.qconfig = torch.quantization.get_default_qconfig(observer)
+        
+        self.quant.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.dequant.qconfig = torch.quantization.get_default_qconfig(observer)
+        
+    def prepare_quantization(self):
+        torch.quantization.prepare(self.encoder, inplace=True)
+        torch.quantization.prepare(self.semantic_decoder, inplace=True)
+        if self.instance_decoder is not None:
+            torch.quantization.prepare(self.instance_decoder, inplace=True)
+            
+        torch.quantization.prepare(self.semantic_head, inplace=True)
+        torch.quantization.prepare(self.ins_center, inplace=True)
+        torch.quantization.prepare(self.ins_xy, inplace=True)
+        
+        torch.quantization.prepare(self.quant, inplace=True)
+        torch.quantization.prepare(self.dequant, inplace=True)
         
     def _apply_heads(
         self, 
@@ -199,6 +222,8 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             # update the number of subdivisions
             self.semantic_pr.subdivision_steps = render_steps
             
+            sem = self.dequant(sem)
+            semantic_x = self.dequant(semantic_x)
             pr_out: Dict[str, torch.Tensor] = self.semantic_pr(
                 sem, semantic_x
             )
@@ -212,9 +237,6 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             heads_out['offsets'] = self.interpolate(offsets) if interpolate_ins else offsets
         
         return heads_out
-    
-    def set_qconfig(self, observer='fbgemm'):
-        self.qconfig = torch.quantization.get_default_qconfig(observer)
     
     def forward(self, x, render_steps: int=2, interpolate_ins: bool=True):
         if self.training:

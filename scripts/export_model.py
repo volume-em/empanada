@@ -139,8 +139,8 @@ def main():
         cpu_model.fuse_model()
 
         # specify quantization configuration
-        cpu_model.set_qconfig('fbgemm')
-        torch.quantization.prepare(cpu_model, inplace=True)
+        cpu_model.fix_qconfig('fbgemm')
+        cpu_model.prepare_quantization()
 
         # calibrate with the training set
         train_loader = create_dataloader(config, norms)
