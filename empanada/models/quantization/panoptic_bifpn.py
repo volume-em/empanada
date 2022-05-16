@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.quantization import QuantStub, DeQuantStub
 from empanada.models.quantization import encoders
+from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
 from empanada.models import PanopticBiFPN
 from typing import List
 
@@ -49,11 +50,16 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
     
-    def set_qconfig(self, observer='fbgemm'):
+    def fix_qconfig(self, observer='fbgemm'):
         # only the encoder gets quantized
         self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
         self.quant.qconfig = torch.quantization.get_default_qconfig(observer)
         self.dequant.qconfig = torch.quantization.get_default_qconfig(observer)
+        
+    def prepare_quantization(self):
+        torch.quantization.prepare(self.encoder, inplace=True)
+        torch.quantization.prepare(self.quant, inplace=True)
+        torch.quantization.prepare(self.dequant, inplace=True)
     
     def _forward_encoder(self, x: torch.Tensor):
         x = self.quant(x)
@@ -77,3 +83,85 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
     def fuse_model(self):
         self.encoder.fuse_model()
             
+class QuantizablePanopticBiFPNPR(QuantizablePanopticBiFPN):
+    def __init__(
+        self,
+        num_fc=3,
+        train_num_points=1024,
+        oversample_ratio=3,
+        importance_sample_ratio=0.75,
+        subdivision_steps=2,
+        subdivision_num_points=8192,
+        **kwargs
+    ):
+        super(QuantizablePanopticBiFPNPR, self).__init__(**kwargs)
+        
+        # change semantic head from regular PDL head to 
+        # PDL head + PointRend
+        self.semantic_pr = QuantizablePointRendSemSegHead(
+            self.fpn_dim, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points, quantize=kwargs['quantize']
+        )
+        
+    def _apply_heads(
+        self, 
+        semantic_x, 
+        instance_x, 
+        render_steps: int,
+        interpolate_ins: bool
+    ):
+        heads_out = {}
+
+        sem = self.semantic_head(semantic_x)
+        ctr_hmp = self.ins_center(instance_x)
+        offsets = self.ins_xy(instance_x)
+        
+        if self.training:
+            pr_out: Dict[str, torch.Tensor] = self.semantic_pr(sem, semantic_x)
+            heads_out['sem_points'] = pr_out['point_logits']
+            heads_out['point_coords'] = pr_out['point_coords']
+            
+            # interpolate to original resolution (4x)
+            heads_out['sem_logits'] = self.interpolate(pr_out['sem_seg_logits'])
+            heads_out['ctr_hmp'] = self.interpolate(ctr_hmp)
+            heads_out['offsets'] = self.interpolate(offsets)
+            
+            # dequant all outputs
+            heads_out = {k: self.dequant(v) for k,v in heads_out.items()}
+        else:
+            # update the number of subdivisions
+            self.semantic_pr.subdivision_steps = render_steps
+            
+            sem = self.dequant(sem)
+            semantic_x = self.dequant(semantic_x)
+            pr_out: Dict[str, torch.Tensor] = self.semantic_pr(
+                sem, semantic_x
+            )
+            
+            # in eval mode interpolation is handled by point rend
+            heads_out['sem_logits'] = pr_out['sem_seg_logits']
+            heads_out['ctr_hmp'] = self.interpolate(ctr_hmp) if interpolate_ins else ctr_hmp
+            heads_out['offsets'] = self.interpolate(offsets) if interpolate_ins else offsets
+        
+        return heads_out
+    
+    def forward(self, x, render_steps: int=2, interpolate_ins: bool=True):
+        if self.training:
+            assert isinstance(self.quant, nn.Identity), \
+            "Quantized trainining not supported!"
+        
+        pyramid_features: List[torch.Tensor] = self._forward_encoder(x)
+        p2_features = self.p2_resample(pyramid_features[1])
+        
+        # only passes features from
+        # 1/8 -> 1/32 resolutions (i.e. P3-P5)
+        semantic_x,  instance_x  = self._forward_decoders(pyramid_features[2:], p2_features)
+
+        output = self._apply_heads(semantic_x, instance_x, render_steps, interpolate_ins)
+        
+        return output
+    
+    def fuse_model(self):
+        self.encoder.fuse_model()

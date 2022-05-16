@@ -55,13 +55,14 @@ def create_dataloader(config, norms):
     # create training dataset and loader
     dataset_class_name = config['TRAIN']['dataset_class']
     data_cls = data.__dict__[dataset_class_name]
-    train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+    
+    train_dataset = data_cls(config['TRAIN']['train_dir'], tfs, **config['TRAIN']['dataset_params'])
     if config['TRAIN']['additional_train_dirs'] is not None:
         for train_dir in config['TRAIN']['additional_train_dirs']:
-            add_dataset = data_cls(train_dir, tfs, weight_gamma=config['TRAIN']['weight_gamma'])
+            add_dataset = data_cls(train_dir, tfs, **config['TRAIN']['dataset_params'])
             train_dataset = train_dataset + add_dataset
 
-    if config['TRAIN']['weight_gamma'] is not None:
+    if config['TRAIN']['dataset_params']['weight_gamma'] is not None:
         train_sampler = WeightedRandomSampler(train_dataset.weights, len(train_dataset))
     else:
         train_sampler = None

@@ -175,7 +175,6 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             
         self.semantic_head.qconfig = torch.quantization.get_default_qconfig(observer)
         self.ins_center.qconfig = torch.quantization.get_default_qconfig(observer)
-        self.ins_xy.qconfig = torch.quantization.get_default_qconfig(observer)
         
         self.quant.qconfig = torch.quantization.get_default_qconfig(observer)
         self.dequant.qconfig = torch.quantization.get_default_qconfig(observer)
@@ -188,7 +187,6 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             
         torch.quantization.prepare(self.semantic_head, inplace=True)
         torch.quantization.prepare(self.ins_center, inplace=True)
-        torch.quantization.prepare(self.ins_xy, inplace=True)
         
         torch.quantization.prepare(self.quant, inplace=True)
         torch.quantization.prepare(self.dequant, inplace=True)
@@ -204,7 +202,7 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
 
         sem = self.semantic_head(semantic_x)
         ctr_hmp = self.ins_center(instance_x)
-        offsets = self.ins_xy(instance_x)
+        offsets = self.ins_xy(self.dequant(instance_x))
         
         if self.training:
             pr_out: Dict[str, torch.Tensor] = self.semantic_pr(sem, semantic_x)
@@ -232,7 +230,6 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             heads_out['sem_logits'] = pr_out['sem_seg_logits']
             
             ctr_hmp = self.dequant(ctr_hmp)
-            offsets = self.dequant(offsets)
             heads_out['ctr_hmp'] = self.interpolate(ctr_hmp) if interpolate_ins else ctr_hmp
             heads_out['offsets'] = self.interpolate(offsets) if interpolate_ins else offsets
         
