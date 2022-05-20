@@ -3,7 +3,6 @@ import cv2
 import torch
 import numpy as np
 from skimage import io
-from skimage import measure
 from empanada.data._base import _BaseDataset
 from empanada.data.utils import heatmap_and_offsets
 
@@ -45,7 +44,7 @@ class SingleClassInstanceDataset(_BaseDataset):
         # transformed and paste example
         f = self.impaths[idx]
         image = cv2.imread(f, 0)
-        mask = cv2.imread(self.mskpaths[idx], -1)
+        mask = io.imread(self.mskpaths[idx])
 
         # add channel dimension if needed
         if image.ndim == 2:
