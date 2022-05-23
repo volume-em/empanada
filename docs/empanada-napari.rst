@@ -15,8 +15,7 @@ Or reach out to the napari developers directly `here <https://github.com/napari/
 
 .. note::
 
-  **IMPORTANT: Python 3.7, 3.8, 3.9 are supported, but 3.10 is not.**
-
+  **Only Python 3.7, 3.8, 3.9 are supported, 3.10 and later are not.**
 
 1. If not already installed, you can `install miniconda here <https://docs.conda.io/en/latest/miniconda.html>`_.
 
@@ -28,24 +27,27 @@ Or reach out to the napari developers directly `here <https://github.com/napari/
 
     $ conda --help
 
-.. note::
+  .. note::
+      If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
+      the terminal or command prompt window. If that doesn't work then
+      see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
+      or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
 
-  If you get a "conda not found error" the most likely cause is that the path wasn't updated correctly. Try restarting
-  the terminal or command prompt window. If that doesn't work then
-  see `fixing conda path on Mac/Linux <https://stackoverflow.com/questions/35246386/conda-command-not-found>`_
-  or `fixing conda path on Windows <https://stackoverflow.com/questions/44597662/conda-command-is-not-recognized-on-windows-10>`_.
+5. If you've previously installed and used conda, it's recommended (but optional) to create a new virtual environment in order to avoid dependency conflicts::
 
-5. Install napari with pip::
+    $ conda create -y -n empanada -c conda-forge python=3.9
+    $ conda activate empanada
+
+6. Install napari with pip::
 
     $ python -m pip install "napari[all]"
 
-6. To verify installation, run::
+7. To verify installation, run::
 
     $ napari
 
 For alternative and more detailed installation instructions, see the
 `official napari installation tutorial <https://napari.org/tutorials/fundamentals/installation>`_.
-
 
 From here the easiest way to install empanada-napari is directly in napari.
 
@@ -66,40 +68,53 @@ From here the easiest way to install empanada-napari is directly in napari.
 3. Click the “Install” button next to the input bar.
 
 If installation was successful you should see `empanada-napari` in the Plugins menu. If you don't
-see, it try restarting napari.
+see it, restart napari.
 
-If this fails, try installing the plugin with pip::
+If you still don't see it, try installing the plugin with pip::
 
 	$ pip install empanada-napari
 
 Modules Overview
 ===================
 
-There are three modules related to automatic segmentation and three for manual cleanup.
-For segmentation there are:
+Model Inference
+^^^^^^^^^^^^^^^^^
 
-  1. 2D Inference (Parameter Testing)
-    * Runs model inference on 2D EM images
-    * Runs model inference on an arbitrary 2D slice of a 3D dataset. Works for xy, xz and yz planes
+`2D Inference (Parameter Testing)`_: Runs model inference on 2D images. Supports batch mode for
+predicting segmentations on a series of unrelated images or can be used to segment arbitrary 2D slices
+from volumetric data.
 
-  2. 3D Inference
-    * Implements stack and ortho-plane inference functionality
+`3D Inference`_: Implements stack and ortho-plane inference functionality for volumetric datasets.
 
-  3. Register new model
-    * Import a model that was exported from empanada.
-    * All model files are stored in a special directory `~/.empanada`
+Model Training
+^^^^^^^^^^^^^^^^^
 
+`Pick training patches`_: Automatically picks patches of data to annotate from 2D or
+3D images. Also gives the option for uses for manually select ROIs using placed points.
 
-Manual cleanup modules are:
+`Store training dataset`_: Stores training patch segmentations in the correct format
+expected for model finetuning and training.
 
-  1. Merge labels
-    * Allows the selection of multiple instances and merges them all to the same label
+`Finetune a model`_: Allows users to finetune any registered model on a specialized
+segmentation dataset.
 
-  2. Split labels
-    * Allows the placement of multiple markers for watershed-based instance splitting.
+`Train a model`_: Train models from scratch for arbitrary panoptic segmentation tasks.
+Optionally, initialize training from CEM pre-trained weights for faster convergence
+and greater robustness.
 
-  3. Delete labels
-    * Allows the removal of selected labels.
+`Register new model`_: Make a new model accessible in all other training and inference
+modules. Models can be registered from .pth files or from web URLs. Useful for
+sharing models locally or over the internet.
+
+Proofreading Tools
+^^^^^^^^^^^^^^^^^^^^
+
+`Merge and Delete labels`_: Allows the selection of multiple instances and merges them all to
+the same label and allows the removal of selected labels, respectively.
+
+`Split labels`_: Allows the placement of multiple markers for distance watershed-based instance splitting.
+
+`Jump to label`_: Given a label ID, moves the napari viewer to the first 2D slice where an object appears.
 
 2D Inference (Parameter Testing)
 ==================================
@@ -108,6 +123,11 @@ Manual cleanup modules are:
   :align: center
   :width: 500px
   :alt: Dialog for the 2D inference and parameter testing module.
+
+Results
+^^^^^^^^^^^^^
+
+Returns a 2D labels layer in the napari viewer.
 
 Parameters
 ^^^^^^^^^^^^^
@@ -130,7 +150,7 @@ for it to be considered a true object center.
 
 **Fine boundaries:** Whether to run Panoptic DeepLab postprocessing at 0.25x the
 input image resolution. Can correct some segmentation errors at the cost of 4x
-more GPU/CPU memory.
+more GPU/CPU memory during postprocessing.
 
 **Semantic Only:** Whether to skip panoptic postprocessing and return only a semantic
 segmentation.
@@ -140,12 +160,16 @@ of the classes being segmented by the model.
 
 **Batch Mode:** If checked, the selected model will be run independently on each
 xy slice in a stack of images. This can be used, for example, to run inference on
-all images in a folder by loading them with "Open Folder..." in napari.
+all images in a folder by loading them with the "Open Folder..." option.
 
 **Use GPU:** Whether to use system GPU for running inference. If no GPU is detected
 on the workstation, then this parameter is ignored.
 
-See **Segmentation Best Practices** section below for detailed usage notes.
+**Use quantized model:** Whether to use a quantized version of the segmentation model.
+The quantized model only runs on CPU but uses ~4x less memory and runs 20-50% faster (depending
+on the model architecture). Results may be 1-2% worse than using the non-quantized version.
+
+See `Inference Best Practices`_ below for more usage notes.
 
 3D Inference
 ==================================
@@ -154,6 +178,12 @@ See **Segmentation Best Practices** section below for detailed usage notes.
   :align: center
   :width: 500px
   :alt: Dialog for the 3D inference module.
+
+Results
+^^^^^^^^^^^^^
+
+Returns a 3D labels layer in the napari viewer for each segmentation class and,
+optionally, panoptic segmentation stacks.
 
 General Parameters
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -170,9 +200,12 @@ inference on large volumes. Napari natively supports reading zarr files.
 check by default if a GPU is found on your system. If no GPU is detected, then
 this parameter is ignored.
 
+**Use quantized model:** Whether to use a quantized version of the segmentation model.
+The quantized model only runs on CPU but uses ~4x less memory and runs 20-50% faster (depending
+on the model architecture). Results may be 1-2% worse than using the non-quantized version.
+
 **Multi GPU:** If the workstation is equipped with more than 1 GPU, inference
-can be distributed across them. This feature is considered experimental and may
-break.
+can be distributed across them. See note in `Inference Best Practices`_.
 
 2D Parameters
 ^^^^^^^^^^^^^^^^
@@ -208,14 +241,16 @@ segmentation as measured in voxels.
 **Min Box Extent:** The minimum bounding box dimension that's allowed for an
 object in the final segmentation. (Filters out big "pancakes").
 
-**Max objects per class:** The maximum number of objects that are allowed for any one
-of the classes being segmented by the model within a single 3D stack.
+**Max objects per class in 3D:** The maximum number of objects that are allowed for any one
+of the classes being segmented by the model within a volume.
+
+**Inference plane:** Plane from which to extract and segmentat slices. Choice of xy, xz, or yz.
 
 Ortho-plane Parameters (Optional)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **Run ortho-plane:** Whether to run ortho-plane inference. If unchecked, inference
-will only be run on slices from the xy plane.
+will only be run on slices from the Inference plane chosen above.
 
 **Return xy, xz, yz stacks:** Whether to return the panoptic segmentation stacks created
 during inference on each plane. If unchecked, only the per-class consensus volumes
@@ -228,14 +263,17 @@ must be labeled in order to end up in the consensus segmentation.
 that appear in only a single stack (for example an object only segmented in xy)
 through to the ortho-plane consensus segmentation.
 
-Segmentation Best Practices
+Inference Best Practices
 ============================
 
 Depending on the size of the volume, 3D inference can take some time even with a GPU,
 therefore it's highly recommended to test out inference parameters beforehand using the
 2D inference module. The 2D inference module will run inference on whatever image slice
 the viewer is pointed at in napari. This means that parameters can be tested on xy, xz and yz
-slices beforehand by flipping the volume and scrolling through the images.
+slices by flipping the volume and scrolling through the stack. If results appear substantially
+better on slices from a particular plane, then use that plane as the **Inference plane** for
+3D inference. Similarly, if results on xy slices are good but results on xz and yz slices are poor,
+then don't use ortho-plane inference.
 
 .. note::
 
@@ -244,48 +282,238 @@ slices beforehand by flipping the volume and scrolling through the images.
   be much faster. This is because pytorch is performing optimization in the background to
   make the model faster on your systems hardware.
 
+.. note::
+
+  When using Multi-GPU inference there's some overhead associated with the
+  creation of a process group. This overhead can make Multi-GPU inference slower
+  on small volumes. Therefore, we don't recommend using it unless working with datasets
+  larger than 1 GB. However, in such cases, the inference speed-up is nearly linear
+  (segmentation will be 4x faster with 4 GPUs than with 1). As more GPUs are added,
+  inference starts to become CPU bound (i.e., the segmentations are being created
+  faster on GPU than they can be processed on CPU). There can be a long delay between
+  inference and backward matching as the CPU processes work to catch up.
+
 We've found that models can give considerably different results based on the nanometer
-resolution of the input image. Also, model inference is faster the smaller the input image,
-so ideally you'd want to find and use the biggest **Image Downsampling** factor that still gives
+resolution of the input image and model inference is faster for smaller input images.
+Ideally you'll want to find and use the biggest **Image Downsampling** factor that still gives
 satisfactory results.
 
 Tweaking the **Segmentation Confidence Threshold** is often just a proxy for erosion and dilation of labels.
-Because ortho-plane inference averages segmentations from 3 views, using a lower confidence
-threshold is sometimes beneficial. Overall, 0.3 seems to be a little better than 0.5 in that
-context.
+Because ortho-plane inference averages segmentations from 3 views using a lower confidence
+threshold is sometimes beneficial: try 0.3 instead of 0.5.
 
 The **Center Confidence Thr** and **Centers Min Distance** parameters both control how split up
 instances will be in 2D. Raising the confidence threshold will result in fewer object centers
-and therefore fewer instances in the segmentation. Similarly, increasing the minimum distance
-will filter out centers that are too close together; this can help especially when you notice
-that long objects are being oversplit into little fragments.
+and therefore fewer instances in the segmentation. Increasing the minimum distance
+will filter out centers that are too close together. This can help if you notice
+that long objects are being oversplit.
 
 Lastly for 2D parameters, the **Fine boundaries** option may be useful if the borders between instances
-are too "blocky". This comes at the cost of 4x more GPU memory usage though, so use it wisely.
+are too "blocky". This comes at the cost of 4x more memory usage during postprocessing though, so use it wisely.
 
-The most important 3D parameter is the **Median Filter Size**. This helps to smooth out stacked
-segmentations. The best kernel size is usually determined the by resolution of the voxels. Lower-resolution
-voxel (>20 nm) that have relatively more change between consecutive slices usually benefit from a smaller
+The most important 3D parameter is the **Median Filter Size**. This smooths out the stacked
+segmentations. The best kernel size is typically a function of voxel size. Lower-resolution
+volumes (>20 nm) that have relatively more change between consecutive slices usually benefit from a smaller
 kernel size like 3. Higher-resolution volumes (<10 nm) have much less change across slices and a kernel
 size of 7 or 9 can work well.
 
-Setting the **Min Size** and **Min Extent** is a function of how large objects are expected
-to be in the volume: this depends on both biology and the voxel resolution. As a rough estimate,
-try drawing a bounding box around a small object that you see. Divide the volume of the box by 2
-to get the approximate volume of a sphere that would fit inside that box. Pick some number a few
-hundred voxels below that threshold as your min size.
+The **Min Size** and **Min Extent** parameters filter out small objects and segmentation "pancakes". The
+optimal size is strongly data-dependent. As a rough estimate, try drawing a bounding box around a small
+object that you see. Divide the volume of the box by 2 to get the approximate volume of a sphere that
+would fit inside that box. Pick some number a few hundred voxels below that threshold as your min size.
+Likewise, the min extent should be a few increments less than the smallest dimension of the bounding box.
 
 The **Voxel Vote Thr Out of 3** and **Permit detections found in 1 stack into consensus** are options
 for when there are too many false negatives after ortho-plane segmentation. Decreasing the voxel
 vote threshold to 1 will fill in more voxels but should not increase the number of false positive detections
 very much. This is because the voxel vote threshold only affects detections that were picked up in more than 1 of the
-inference stacks. "Permit detections found in 1 stack into consensus", on the other hand, can increase false positives because
+inference stacks. **Permit detections found in 1 stack into consensus**, on the other hand, can increase false positives because
 it will allow detections picked up by just a single stack into the consensus segmentation (what a well named parameter!).
 
-Final note. When running ortho-plane inference it's recommended to also **Return xy, xz, yz stacks**
+When running ortho-plane inference it's recommended to also **Return xy, xz, yz stacks**
 segmentations. In some cases, inference results are better on just a single plane (i.e., xz)
 than they are in the consensus. Returning the intermediate panoptic results for each stack
 will help you to decide whether that applies to your dataset or not.
+
+
+Pick training patches
+==================================
+
+.. image:: _static/pick_patches.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the patch picking module.
+
+Results
+^^^^^^^^^^^^^
+
+If the image to pick patches from is 3D, returns a set of flipbooks with five
+images in each along with a corresponding labels layer of the same size. If the
+image is instead 2D or a 2D stack, returns a set of patches and a labels layer
+of matching size.
+
+.. note::
+
+  When flipbooks are returned, it's assumed that the middle image in each will
+  be annotated. For example, in a flipbook with five images, only the third image
+  should be segmented.
+
+Parameters
+^^^^^^^^^^^^^
+
+**image layer:** The napari image layer from which to sample patches.
+
+**points layer:** Optional. The napari points layer containing fiducial points
+centered at ROIs to pick for annotation.
+
+**Number of patches for annotation:** Number of patches to pick for annotation.
+By default, patches are chosen randomly. If the points layer was given but has
+fewer points than this number, the remainder will be made up with random patches.
+Overwritten if **Pick all points** (below) is selected.
+
+**Patch size in pixels:** The desired pixel size for chosen patches. All patches
+are square.
+
+**Multiscale image level:** If the image layer is a multiscale image, select the
+resolution level from which to sample. It's assumed that images in each level
+were downsampled by 2x.
+
+**Pick all points:** If checked, patches will be created from all points in
+the given points layer, regardless of the **Number of patches for annotation**
+that was set.
+
+**Pick from xy, xz, or yz:** If checked, patches will be arbitrarily selected from
+any of the principle planes. Only select this option for nearly isotropic voxel
+3D datasets.
+
+**Image is 2D stack:** If checked, treats the image layer as a stack of unrelated
+2D images. For example, check this box when picking patches from a directory
+of 2D images that were loaded with the "Open Folder..." option.
+
+See `Training Best Practices`_ below for more usage notes.
+
+Store training dataset
+==================================
+
+.. image:: _static/store_training_dataset.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the dataset saving module.
+
+Results
+^^^^^^^^^^^^^
+
+Creates or appends data to a directory with the structure expected for
+model finetuning and training. If the image and labels layers are
+flipbooks, only the middle image in each flipbook is saved.
+
+Parameters
+^^^^^^^^^^^^^
+
+**image layer:** The napari image layer for annotated patches or flipbooks.
+
+**labels layer:** The napari labels layer for annotated patches or flipbooks.
+
+**Save directory:** Directory in which to save the dataset. A subdirectory
+with the given **Dataset name** (below) will be created.
+
+**Dataset name:** Name of the dataset directory to create. If the dataset already
+exists, the new data will be appended.
+
+See `Training Best Practices`_ below for more usage notes.
+
+Finetune a model
+==================================
+
+.. image:: _static/finetune_model.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the model finetuning module.
+
+Results
+^^^^^^^^^^^^^
+
+Saves and registers a .pth torchscript model that has been finetuned on
+the provided data. Also saves a .yaml config with parameters necessary for
+additional finetuning.
+
+Parameters
+^^^^^^^^^^^^^
+
+**Model name, no spaces:** Name of the finetuned model as it will appear in the
+other empanada modules after finetuning.
+
+**Train directory:** Training directory for finetuning. Must conform to the
+standard directory structure specified for empanada (as for example is created
+by the `Store training dataset`_ module).
+
+**Validation directory (optional):** Validation directory. Must conform to the
+standard directory structure specified for empanada. Can be the same as **Train directory**.
+
+**Model directory:** Directory in which to save the finetuned model definition
+and config file. The directory will be created if it doesn't exist already.
+
+**Model to finetune:** Empanada model to finetune.
+
+**Finetunable layers:** Layers to unfreeze in the model encoder during
+finetuning.
+
+**Iterations:** Number of iterations to finetune the model.
+
+**Custom config (optional):** Use a custom config file to set other training
+hyperparameters. `See here for a template to modify <https://github.com/volume-em/empanada-napari/blob/train/custom_configs/custom_finetuning.yaml>`_.
+
+Train a model
+==================================
+
+.. image:: _static/train_model.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the model training module.
+
+Results
+^^^^^^^^^^^^^
+
+Saves and registers a .pth torchscript model that has been trained on
+the provided data. Also saves a .yaml config with parameters necessary for
+additional finetuning.
+
+Parameters
+^^^^^^^^^^^^^
+
+**Model name, no spaces:** Name of the model as it will appear in the
+other empanada modules after training.
+
+**Train directory:** Training directory for finetuning. Must conform to the
+standard directory structure specified for empanada (as for example is created
+by the `Store training dataset`_ module).
+
+**Validation directory (optional):** Validation directory. Must conform to the
+standard directory structure specified for empanada. Can be the same as **Train directory**.
+
+**Model directory:** Directory in which to save the trained model definition,
+weights, and config file. The directory will be created if it doesn't exist already.
+
+**Dataset labels:** List of labels in the training dataset. Each line is a comma separated list of three
+items without spaces: <class_id>,<class_name>,<class_type>. Class IDs must be integers, class names
+can be anything, class types must be either 'semantic' or 'instance'.
+
+**Label divisor:** For mutliclass segmentation, the label divisor that was used
+to offset the labels for each class.
+
+**Model architecture:** The model architecture to use for training.
+
+**Use CEM pretrained weights:** If checked the model encoder will be initialized
+with the latest CEM weights. (CEM weights are created by self-supervised training
+on the very large and heterogeneous CEM dataset).
+
+**Finetunable layers:** Layers to unfreeze in the model encoder during
+training. Ignored if **Use CEM pretrained weights** isn't checked.
+
+**Iterations:** Number of iterations to train the model.
+
+**Custom config (optional):** Use a custom config file to set other model and training
+hyperparameters. `See here for a template to modify <https://github.com/volume-em/empanada-napari/blob/train/custom_configs/custom_training_pdl.yaml>`_.
 
 Register new model
 ====================
@@ -295,68 +523,103 @@ Register new model
   :width: 500px
   :alt: Dialog for the register new model module.
 
+Results
+^^^^^^^^^^^^^
+
+Adds a new model to choose in inference and training modules.
+
 Parameters
 ^^^^^^^^^^^^^^^^
 
-**Model name:** User chosen name to use for this model throughout the other plugin modules.
+**Model name:** Name to use for this model throughout the other plugin modules.
 
-**Model Zip File:** Zip file containing the output of a model export from empanada (see Export tutorial).
-Currently only PointRend enabled models can be imported.
+**Model config file:** Config file for the model as created in the Finetuning and Training
+modules or by exporting from the empanada library.
 
-On installation, the empanada-napari module is already equipped with the **MitoNet** segmentation model.
-This module only applies for registering custom or finetuned models.
+**Model file (optional):** Path or URL to the torchscript .pth file defining the model. If the path/url
+given in the config file is correct this is unnecessary.
 
-.. note::
-
-  If the 2D or 3D Inference module have already been opened, then imported models will not
-  appear in the available models list. Restarting napari will update it.
+**Quantized model file (optional):** Path or URL to the quantized torchscript .pth file defining the model.
+If the path/url given in the config file is correct this is unnecessary.
 
 .. note::
 
-  Currently deleting
-  models is manual. Delete the config file from `~/.empanada/configs` and delete the four model files
-  from `~/.empanada/models`. Model file names are `{model_name}_render_cpu.pth`, `{model_name}_render_gpu.pth`,
-  `{model_name}_base_cpu.pth` and `{model_name}_base_gpu.pth`.
+  If the 2D or 3D Inference module have already been opened, then registered models may not
+  appear in the available models list. Open and close the relevant module or restart napari.
 
+.. note::
 
-Split, Merge, Delete Labels
+  Removing models is manual. Simply delete or move the config file from `~/.empanada/configs`.
+
+Merge and Delete labels
 =============================
 
-These modules are used for manual cleanup of the predicted segmentation, especially
-for fixing oversplit and overmerged instances. They were inspired
-by this `nifty plugin <https://github.com/haesleinhuepf/napari-manual-split-and-merge-labels>`_.
-Unlike that plugin, these functions work for both 2D and 3D images. **Currently,
-label layers must be of numpy type. If the segmentations were stored in
-zarr format then they will have to be converted first.**
-
-The interface for Split, Merge and Delete modules are all the same:
-
-.. image:: _static/cleanup_dialog.png
+.. image:: _static/merge_labels.png
   :align: center
   :width: 500px
-  :alt: Dialog for the split, merge and delete modules.
+  :alt: Dialog for the merge and delete labels module.
+
+Results
+^^^^^^^^^^^^^
+
+In-place merges or deletes selected labels from a labels layer.
 
 Parameters
 ^^^^^^^^^^^^^^^^
+
+The parameters for the Merge and Delete labels modules are the same.
 
 **labels layer:** The napari labels layer for which to apply operations.
 
-**points layers:** The napari points layer used to select points/instances.
+**points layers:** The napari points layer used to select instances for merging/deletion.
 
-Here's example usage for split and merging objects.
+Split labels
+=============================
 
-.. figure:: _static/merge_split_example.png
-    :width: 600px
-    :align: center
-    :alt: alternate text
-    :figclass: align-center
+.. image:: _static/split_labels.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the split labels module.
 
-    Left to right: (a) Points are placed on a overmerged instance. Each point is a marker for
-    watershed. (b) Applying split separates the instance into six fragments. Points are
-    placed to specify fragments for merging. (c) The fragments in the top instance are merged.
-    (d) Points are placed for fragments to merge in the bottom instance. (e) The bottom
-    instance is merged.
+Results
+^^^^^^^^^^^^^
+
+In-place splits the selected label in the labels layer.
+
+Parameters
+^^^^^^^^^^^^^^^^
+.. note::
+
+  Only one instance can be split at a time. All points aside from the first one will
+  be ignored and deleted unless **Use points as markers** (below) is checked.
+
+**labels layer:** The napari labels layer for which to apply operations.
+
+**points layers:** The napari points layer used to select instance for splitting.
+
+**Minimum Distance:** Minimum distance from the boundary of the instance for
+a pixel/voxel to be included in a watershed marker.
+
+**Use points as markers:** If checked, minimum distance will be ignored and the
+watershed transform will treat each point as a marker.
 
 
-For the delete module, a point is placed on the object to be deleted. That object is then
-removed entirely from the segmentation.
+Jump to label
+=============================
+
+.. image:: _static/jump_label.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the jump to label module.
+
+Results
+^^^^^^^^^^^^^
+
+Moves the napari viewer to the first slice showing the given label ID, if found.
+
+Parameters
+^^^^^^^^^^^^^^^^
+
+**labels layer:** The napari labels layer in which to find the label.
+
+**Label ID:** Integer ID for the label to jump the viewer to.
