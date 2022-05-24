@@ -35,7 +35,7 @@ release = '0.1.4'
 extensions = [
 	'sphinx.ext.autodoc',
 	'sphinx.ext.napoleon',
-	'sphinx.ext.linkcode',
+	'sphinx.ext.viewcode',
 	'sphinx.ext.autosummary'
 ]
 
@@ -67,44 +67,8 @@ html_static_path = ['_static']
 autosummary_generate = True
 autosummary_imported_members = True
 
-def linkcode_resolve(domain, info):
-    """
-    Determine the URL corresponding to Python object
-    """
-    if domain != "py":
-        return None
-
-    modname = info["module"]
-    fullname = info["fullname"]
-
-    submod = sys.modules.get(modname)
-    if submod is None:
-        return None
-
-    obj = submod
-    for part in fullname.split("."):
-        try:
-            obj = getattr(obj, part)
-        except AttributeError:
-            return None
-
-    try:
-        fn = inspect.getsourcefile(inspect.unwrap(obj))
-    except TypeError:
-        fn = None
-    if not fn:
-        return None
-
-    try:
-        source, lineno = inspect.getsourcelines(obj)
-    except OSError:
-        lineno = None
-
-    if lineno:
-        linespec = f"#L{lineno}-L{lineno + len(source) - 1}"
-    else:
-        linespec = ""
-
-    fn = os.path.relpath(fn, start=os.path.dirname(empanada.__file__))
-
-    return f"https://github.com/volume-em/empanada/blob/main/empanada/{fn}{linespec}"
+autodoc_mock_imports = [
+	"yaml", "numpy", "torch",
+	"networkx", "scipy", "skimage",
+	"numba"
+]

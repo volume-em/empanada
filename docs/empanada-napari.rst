@@ -1,5 +1,5 @@
 empanada-napari
------------------
+******************
 
 .. image:: _static/demo.gif
     :width: 1000px
@@ -67,8 +67,7 @@ From here the easiest way to install empanada-napari is directly in napari.
 
 3. Click the “Install” button next to the input bar.
 
-If installation was successful you should see `empanada-napari` in the Plugins menu. If you don't
-see it, restart napari.
+If installation was successful you should see empanada-napari in the Plugins menu. If you don't, restart napari.
 
 If you still don't see it, try installing the plugin with pip::
 
@@ -390,8 +389,6 @@ any of the principle planes. Only select this option for nearly isotropic voxel
 2D images. For example, check this box when picking patches from a directory
 of 2D images that were loaded with the "Open Folder..." option.
 
-See `Training Best Practices`_ below for more usage notes.
-
 Store training dataset
 ==================================
 
@@ -419,8 +416,6 @@ with the given **Dataset name** (below) will be created.
 
 **Dataset name:** Name of the dataset directory to create. If the dataset already
 exists, the new data will be appended.
-
-See `Training Best Practices`_ below for more usage notes.
 
 Finetune a model
 ==================================
@@ -623,3 +618,18 @@ Parameters
 **labels layer:** The napari labels layer in which to find the label.
 
 **Label ID:** Integer ID for the label to jump the viewer to.
+
+Tutorials
+=============
+
+Inference on 2D images
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Inference on volumetric data
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Finetuning and Training models
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Proofreading
+^^^^^^^^^^^^^^
