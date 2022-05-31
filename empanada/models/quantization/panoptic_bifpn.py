@@ -4,7 +4,8 @@ from torch.quantization import QuantStub, DeQuantStub
 from empanada.models.quantization import encoders
 from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
 from empanada.models import PanopticBiFPN
-from typing import List
+from empanada.models.blocks import *
+from typing import List, Dict
 
 __all__ = [
     'QuantizablePanopticBiFPN'
@@ -27,7 +28,6 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
     def __init__(
         self,
         quantize=False,
-        interpolate=False,
         **kwargs,
     ):
         super(QuantizablePanopticBiFPN, self).__init__(**kwargs)
@@ -38,11 +38,8 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
         
         _replace_relu(self)
         
-        # optionally, turn off interpolation
-        # output will be 1/4th size of input
-        if not interpolate:
-            self.interpolate = nn.Identity()
-        
+        self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+
         if quantize:
             self.quant = QuantStub()
             self.dequant = DeQuantStub()

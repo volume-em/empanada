@@ -7,7 +7,7 @@ from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHe
 from empanada.models.quantization.decoders import QuantizablePanopticDeepLabDecoder
 from empanada.models.heads import PanopticDeepLabHead
 from empanada.models.blocks import *
-from typing import List
+from typing import List, Dict
 
 backbones = sorted(name for name in encoders.__dict__
     if not name.startswith("__")
