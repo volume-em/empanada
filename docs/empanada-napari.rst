@@ -625,6 +625,158 @@ Tutorials
 Inference on 2D images
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
+To get started, `download some example TEM images <https://www.dropbox.com/s/t9z8v2j06ttlhng/empanada_tem.zip?dl=1>`_.
+
+If you installed napari into a virtual environment as suggested in `Installation`_, be sure to activate it::
+
+    $ conda activate empanada
+
+Launch napari::
+
+    $ napari
+
+Loading Data
+""""""""""""""
+
+After unzipping the downloaded data, choose "File > Open Folder", navigate to the empanada_tem directory,
+and click "Open":
+
+|pic1| |pic2|
+
+.. |pic1| image:: _static/open_folder.png
+   :width: 45%
+
+.. |pic2| image:: _static/dir2d_pick.png
+   :width: 45%
+
+
+Tuning downsampling
+""""""""""""""""""""""
+
+.. image:: _static/plugin_2d.png
+  :align: left
+  :width: 500px
+
+Navigate to the plugin menu and select "2D Inference (Parameter Testing)":
+
+Descriptions of all parameters are explained in `2D Inference (Parameter Testing)`_. The most
+important parameter to tune is the **Image downsampling**. To start with, try the
+**MitoNet_v1** model without downsampling, with 2x downsampling, and with 4x downsampling. Results
+should look something like this (click the image for high-res):
+
+.. image:: _static/compare_2d_full.png
+  :align: center
+  :width: 800px
+
+The results are best without any downsampling but are still quite good even with 4x downsampling. As a rule, too
+much downsampling will result in more false positive detections and more false negatives
+for small objects in particular. Boundaries between closely packed objects will also be less well-defined.
+
+As a counterpoint look at the effect of downsampling on the second image in the stack:
+
+.. image:: _static/downsampling_better.png
+  :align: center
+  :width: 600px
+
+Here downsampling by a factor of 2 significantly reduces oversplitting errors and results in a better
+pixel-level segmentation. Plus, the smaller image size means that model inference will
+be faster and use less memory! The takeaway is that it's important to test different downsampling
+factors on new datasets to see which is best. Always opt to use the largest downsampling factor
+that gives satisfactory results.
+
+Choosing the right model
+"""""""""""""""""""""""""""
+
+By default, empanada-napari ships with two versions of the MitoNet model: **MitoNet_v1** and
+**MitoNet_v1_mini**. As the name implies, **MitoNet_v1_mini** is a more compact version of
+the full model. With ~30 million fewer parameters it runs 50-70% faster on GPU. Semantic
+segmentation quality is almost equally good (sometimes better) but it's ability to
+resolve individual instances isn't quite as strong. Here are results on the first
+image of the stack with 2x downsampling; arguably the mini model yields a slightly
+better segmentation.
+
+.. image:: _static/mini_compare.png
+  :align: center
+  :width: 600px
+
+
+Using Batch Mode
+"""""""""""""""""""""""""""
+
+Batch mode let's you run inference with a given configuration on all images in the
+stack. Running with the options shown below will create 5 segmentation layers (i.e.,
+one for each image).
+
+.. image:: _static/select_batch_mode.png
+  :align: left
+  :width: 50%
+
+
+Proofreading
+""""""""""""""
+
+To correct mistakes, use the proofreading tools to paint, erase, merge, split, and delete labels.
+
+Let's look at the second image in the stack. First, select the correct labels layer in the left hand panel
+(**b**). Hover the cursor over the label you'd like to edit and make note of the label ID
+in the bottom left corner of the napari window (**c**). Type this ID in the label field shown in
+panel (**a**). Paint and erase options are denoted by the blue and red arrows in **a**, respectively.
+
+.. image:: _static/paint_erase.png
+  :align: center
+  :width: 800px
+
+
+To run merge, split, and delete operations, create a new points layer (red arrow in panel **b**).
+Place points by clicking the circle with a plus sign (panel **a**) and clicking in the viewer window.
+The model output is shown in the top left corner of the figure below. After placing points on the
+yellow and purple labels, click the **Merge labels** button. Make sure that the labels layer matches
+the layer you're working on (seen panel **b** in the previous figure), if not you'll get an "out-of-bounds"
+error.
+
+This overmerges the two instances. To split them, place a single point anywhere on the yellow label and
+click the **Split labels** button (again making sure the labels layer selected is correct). Adjusting the
+Minimum distance slider will control how many fragments the label gets split into.
+
+Repeat the merge operation by placing the four dots shown in the top right of the figure.
+
+.. image:: _static/merge_split.png
+  :align: center
+  :width: 800px
+
+
+Exporting
+""""""""""""""
+
+.. note::
+
+  The process for exporting 2D labels for a stack is not stable. Only proceed through
+  the following section when 100% finished with all manually cleanups.
+
+The last step is to export the segmentations. Currently, this requires a work around if
+you'd like to open the segmentations in software other than napari. This is a high-priority
+pain point that we intend to fix. Open the napari console (red arrow):
+
+.. image:: _static/console.png
+  :align: center
+  :width: 300px
+
+
+Paste the following code and press enter::
+
+    import numpy as np
+    for layer in viewer.layers:
+    if type(layer) == napari.layers.Labels:
+        layer.data = layer.data.astype(np.uint32).squeeze()
+
+Select all the layers to export and save them to a new folder:
+
+
+.. image:: _static/export2d.png
+  :align: center
+  :width: 600px
+
+
 Inference on volumetric data
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
