@@ -105,6 +105,9 @@ and greater robustness.
 modules. Models can be registered from .pth files or from web URLs. Useful for
 sharing models locally or over the internet.
 
+`Get model info`_: Get information about registered models to help decide which one
+is appropriate for inference or finetuning. 
+
 Proofreading Tools
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -167,6 +170,14 @@ on the workstation, then this parameter is ignored.
 **Use quantized model:** Whether to use a quantized version of the segmentation model.
 The quantized model only runs on CPU but uses ~4x less memory and runs 20-50% faster (depending
 on the model architecture). Results may be 1-2% worse than using the non-quantized version.
+
+**Output to layer:** If checked, the output of the model will be inserted into the given
+output layer (next argument). This argument is incompatible with Batch mode and will raise
+an error if both are checked.
+
+**output layer:** If Output to layer is checked, the output of the model will be inserted
+into this layer, otherwise a new layer will be created. The output layer must be the same
+shape as the image layer.
 
 See `Inference Best Practices`_ below for more usage notes.
 
@@ -455,6 +466,10 @@ finetuning.
 
 **Iterations:** Number of iterations to finetune the model.
 
+**Patch size in pixels:** Patch size in pixels to use for random cropping of the image during finetuning.
+Should be divisible by 16 for PanopticDeepLab model or 128 for PanopticBiFPN models. Use `Get model info`_ to
+check.
+
 **Custom config (optional):** Use a custom config file to set other training
 hyperparameters. `See here for a template to modify <https://github.com/volume-em/empanada-napari/blob/train/custom_configs/custom_finetuning.yaml>`_.
 
@@ -507,8 +522,14 @@ training. Ignored if **Use CEM pretrained weights** isn't checked.
 
 **Iterations:** Number of iterations to train the model.
 
+**Patch size in pixels:** Patch size in pixels to use for random cropping of the image during finetuning.
+Should be divisible by 16 for PanopticDeepLab model or 128 for PanopticBiFPN models.
+
 **Custom config (optional):** Use a custom config file to set other model and training
 hyperparameters. `See here for a template to modify <https://github.com/volume-em/empanada-napari/blob/train/custom_configs/custom_training_pdl.yaml>`_.
+
+**Description:** Free form text description of the model including details about the training data, model purpose,
+and other relevant information. 
 
 Register new model
 ====================
@@ -546,6 +567,24 @@ If the path/url given in the config file is correct this is unnecessary.
 
   Removing models is manual. Simply delete or move the config file from `~/.empanada/configs`.
 
+Get model info
+====================
+
+.. image:: _static/get_info.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the get info module.
+
+Results
+^^^^^^^^^^^^^
+
+Prints information about the model to the terminal.
+
+Parameters
+^^^^^^^^^^^^^^^^
+
+**Model name:** Name of the model to get information about. 
+  
 Merge and Delete labels
 =============================
 
@@ -625,7 +664,7 @@ Tutorials
 Inference on 2D images
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-To get started, `download some example TEM images <https://www.dropbox.com/s/t9z8v2j06ttlhng/empanada_tem.zip?dl=1>`_.
+To get started, `download some example TEM images <https://www.dropbox.com/s/t9z8v2j06ttlhng/empanada_tem.zip?dl=0>`_.
 
 If you installed napari into a virtual environment as suggested in `Installation`_, be sure to activate it::
 
@@ -666,7 +705,7 @@ should look something like this (click the image for high-res):
 
 .. image:: _static/compare_2d_full.png
   :align: center
-  :width: 800px
+  :width: 100%
 
 The results are best without any downsampling but are still quite good even with 4x downsampling. As a rule, too
 much downsampling will result in more false positive detections and more false negatives
@@ -676,7 +715,7 @@ As a counterpoint look at the effect of downsampling on the second image in the 
 
 .. image:: _static/downsampling_better.png
   :align: center
-  :width: 600px
+  :width: 100%
 
 Here downsampling by a factor of 2 significantly reduces oversplitting errors and results in a better
 pixel-level segmentation. Plus, the smaller image size means that model inference will
@@ -697,19 +736,19 @@ better segmentation.
 
 .. image:: _static/mini_compare.png
   :align: center
-  :width: 600px
+  :width: 100%
 
 
 Using Batch Mode
 """""""""""""""""""""""""""
 
-Batch mode let's you run inference with a given configuration on all images in the
-stack. Running with the options shown below will create 5 segmentation layers (i.e.,
-one for each image).
-
 .. image:: _static/select_batch_mode.png
   :align: left
   :width: 50%
+
+Batch mode let's you run inference with a given configuration on all images in the
+stack. Running with the options shown on left will create 5 segmentation layers (i.e.,
+one for each image).
 
 
 Proofreading in 2D
@@ -724,7 +763,7 @@ panel (**a**). Paint and erase options are denoted by the blue and red arrows in
 
 .. image:: _static/paint_erase.png
   :align: center
-  :width: 800px
+  :width: 100%
 
 To run merge, split, and delete operations, create a new points layer (red arrow in panel **b**).
 Place points by clicking the circle with a plus sign (panel **a**) and clicking in the viewer window.
@@ -741,7 +780,7 @@ Repeat the merge operation by placing the four dots shown in the top right of th
 
 .. image:: _static/merge_split.png
   :align: center
-  :width: 800px
+  :width: 100%
 
 
 Exporting
@@ -778,7 +817,7 @@ Select all the layers to export and save them to a new folder:
 Inference on volumetric data
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-To get started, `download an example FIBSEM dataset <https://www.dropbox.com/s/2gu3go2puzc47ip/hela_cell_em.tif?dl=1>`_.
+To get started, `download an example HeLa cell FIBSEM dataset <https://www.dropbox.com/s/2gu3go2puzc47ip/hela_cell_em.tif?dl=0>`_.
 
 If you installed napari into a virtual environment as suggested in `Installation`_, be sure to activate it::
 
@@ -883,5 +922,204 @@ To save, simply select one or more layers and "Save selected layers":
   them – they're already saved in the directory you picked.
 
 
-Finetuning and Training models
+Finetuning an existing model
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To get started, `download an example C. Elegans FIBSEM dataset <https://www.dropbox.com/s/hm8xg8n4raio99q/c_elegans_em.tif?dl=0>`_
+and `some instance annotations <https://www.dropbox.com/s/qd8872r6cumbya2/c_elegans_mitos.zip?dl=0>`_. Unzip the annotations.
+
+If you installed napari into a virtual environment as suggested in `Installation`_, be sure to activate it::
+
+    $ conda activate empanada
+
+Launch napari::
+
+    $ napari
+
+Loading Data
+""""""""""""""
+
+Drag and drop the c_elegans_em.tif file into the napari window.
+
+Choosing a model
+""""""""""""""""""""""""
+
+First, decide which model to finetune by using the `Get model info`_ module, selecting a model from
+the dropdown list, and clicking the "Print info to terminal" button. For this tutorial let's have
+a look at the MitoNet_v1_mini model:
+
+.. image:: _static/model_info.png
+  :align: center
+  :width: 100%
+
+Looking at the finetuning instructions tells us that this model expects image patches
+that are divisible by 128 and that it segments a single instance class: mitochondria.
+It also tells us that we should start annotation with label 1 for the first mitochondrion
+and increment by 1 for each subsequent mitochondrion.
+
+Picking training data
+""""""""""""""""""""""""
+
+Open the `Pick training patches`_ and `Store training dataset`_ modules (green arrows). It's possible
+to pick patches randomly from the entire volume or from a particular ROI by placing points. For example,
+let's place 2 points on areas that we think may be difficult to segment. First, create a points layer 
+(red arrow bottom left), switch to point add mode (blue circle with + sign in middle left), and then
+click to place points in the viewer. Now, we'll use the `Pick training patches`_ module to pick
+16 patches of size 256x256, because this data has isotropic voxels we'll also check the "Pick from
+xy, xz, or yz" box. The first 2 patches selected will be from the points that we placed, the other
+14 patches will be randomly picked from the volume.
+
+For 3D datasets, the patches are output as flipbooks (short stacks of 5 images). Only the middle (third image)
+in each flipbook should be annotated, the other images are there to provide some 3D context. At the bottom of the
+viewer you'll see that there are two sliders. The top one scrolls through the stack of images and the bottom one 
+scrolls through the flipbooks. Make sure all annotations are made on slice "2" of the top slider (bottom right panel).
+
+See the next section for how to annotate flipbooks. Once all images have been annotated, select the appropriate flipbook 
+image and corresponding labels layer then click the "Save flipbooks" button (middle right panel).
+
+.. note::
+
+  Finetuning requires at least 16 training patches to be annotated. They can be completed in batches though,
+  the Store training dataset module will append them to an existing dataset if the directory and dataset name
+  match.
+
+
+.. image:: _static/picked_patches.png
+  :align: center
+  :width: 100%
+
+Annotating training data
+""""""""""""""""""""""""""
+
+To avoid confusion it's best to hide any layers other than the flipbook image and labels layer.
+
+It's possible to use an existing model to get initial segmentation for cleanup. To do this,
+open the `2D Inference (Parameter Testing)`_ module, check the "Output to layer" box, and
+select the flipbook labels layer "c_elegans_em_flipbooks_labels". Make sure you're on the third slice
+of a flipbook and click "Run 2D Inference". This will insert the segmentation into the labels layer.
+You can then paint and erase labels following `Proofreading in 2D`_. HOWEVER, merge, split, and delete
+proofreading tools cannot be used because all flipbook segmentations are stored in the same labels
+layer! (We'll investigate ways to remove this restriction in the future. One work around is to pick
+one patch at a time for annotation, store it, and repeat until you reach 16).
+
+.. image:: _static/ft_annotate.png
+  :align: center
+  :width: 600px
+
+.. note::
+
+  If you use the settings shown in the figure above, you'll notice that the segmentation labels
+  start at 1001. This is OK when the model only has one instance class, but if you have multiple classes
+  then you'll have to make sure that the "Max objects per class" field is equal to the label divisor printed
+  from `Get model info`_. The relevant line says, "Use a label divisor of {label_divisor}". The default label divisor
+  for models trained in empanada is 1000. Anytime the label divisor is "None" you don't have to worry about which labels
+  you use so long as they're unique for each instance.
+
+Finetuning the model
+"""""""""""""""""""""""""
+
+Using the annotations that you downloaded, finetuning a model is simple. We'll use the same annotations
+for training and validation, though you could easily create a separate validation set if desired. Setting the
+"Finetubale layers" to "all" means that all encoder layers will be finetuned. This generally gives better
+results, but training with fewer finetunable layers will require less memory and time. 100 training iterations
+is a good starting point, but increasing the number of iterations may yield better results. For a fairly general
+model like MitoNet, training for more than 500 iterations shouldn't be necessary unless you've annotated a lot
+of images.
+
+.. image:: _static/ft_example.png
+  :align: center
+  :width: 100%
+
+Once finetuning finishes, the model will appear in dropdowns across all other modules in the plugin. If it
+doesn't, close the module and reopen it. Unsurprisingly, we see that a finetuned model works much better on 
+this data than vanilla MitoNet. See the `Inference on 2D images`_ and `Inference on volumetric data`_  
+for details on how to use the model for inference. 
+
+Training a panoptic segmentation model
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To get started, `download an example mouse liver FIBSEM dataset <https://www.dropbox.com/s/za9q1h2yancx1ow/openorganelle_mouse_liver_roi.tif?dl=0>`_
+and `some panoptic annotations <https://www.dropbox.com/s/c4veu311mvk8ujx/mouse_liver_er_mito_nuclei.zip?dl=0>`_. Unzip the annotations.
+
+If you installed napari into a virtual environment as suggested in `Installation`_, be sure to activate it::
+
+    $ conda activate empanada
+
+Launch napari::
+
+    $ napari
+
+Loading Data
+""""""""""""""
+
+Drag and drop the openorganelle_mouse_liver_roi.tif file into the napari window.
+
+Picking panoptic data
+""""""""""""""""""""""""
+
+See `Picking training data`_ in the `Finetuning an existing model`_ tutorial. The same instructions apply.
+
+Annotating panoptic data
+""""""""""""""""""""""""""
+
+See `Annotating training data`_ in the `Finetuning an existing model`_ tutorial to get started.
+The key difference between annotation for instance and panoptic segmentation is the use of a label divisor.
+The label divisor separates semantic and instance classes and allows for multiple objects to be segmented
+for each instance class. 
+
+For this tutorial, we're interested in segmenting ER (semantic), mitochondria (instance), and nucleus (semantic). 
+The only requirement for the label divisor is that it is greater than the number of mitochondrial instances in any given patch.
+To be very comfortable let's use a label divisor of 1,000, though 100 would be fine as well. Remember what you choose,
+you'll need it later when training.
+
+First, we'll label ER. Set the label to 1001 and paint all the ER:
+
+.. image:: _static/paint_er.png
+  :align: center
+  :width: 600px
+
+Second, we'll paint each mitchondrial instance. Set the label to 2001 and paint the first mitochondrion, then
+increase the label to 2002 and paint the second mitochondrion.
+
+.. image:: _static/paint_mito.png
+  :align: center
+  :width: 600px
+
+Finally, we'll paint the nucleus. Set the label to 3001 and paint all the nuclei.
+
+.. image:: _static/paint_nuclei.png
+  :align: center
+  :width: 600px
+
+
+Training the model
+""""""""""""""""""""
+
+Open the `Train a model`_ module and fill in the train, validation, and model directory fields.
+For the "Dataset labels" field, each line correspond to a unique segmentation class. In this case,
+the first segmentation class is ER, so the first line should be "1,er,semantic" (the order is class label,
+class name, segmentation type). Class label should always be an integer, the class name can be any string,
+and the segmentation type must be either "semantic" or "instance". The second and third lines are then 
+"2,mito,instance" and "3,nucleus,semantic", respectively. For the training data provided the label divisor is 1000.
+
+While using CEM pretrained weights will significantly reduce the amount of time required to train a robust
+and performant model, multiclass segmentation classes typically need to train for a longer time. For this
+case 500 iterations may be enough, but 1,000 might be better. You should never need to train for more than
+10,000 iterations.
+
+.. image:: _static/panoptic_train.png
+  :align: center
+  :width: 600px
+
+Once training finishes, the model will appear in dropdowns across all other modules in the plugin. If it
+doesn't, close the module and reopen it. Here's the result:
+
+.. image:: _static/panoptic_result.png
+  :align: center
+  :width: 600px
+
+
+See the `Inference on 2D images`_ and `Inference on volumetric data`_  for details on how to use the model for inference. 
+
+
+
