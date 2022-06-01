@@ -12,8 +12,9 @@
 #
 import os
 import sys
-sys.path.insert(0, '/Users/conradrw/Desktop/empanada/')
-#sys.path.insert(0, os.path.abspath('..'))
+import inspect
+sys.path.insert(0, os.path.abspath('..'))
+import empanada
 
 
 # -- Project information -----------------------------------------------------
@@ -23,7 +24,7 @@ copyright = '2022, Ryan Conrad'
 author = 'Ryan Conrad'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1'
+release = '0.1.4'
 
 
 # -- General configuration ---------------------------------------------------
@@ -33,7 +34,9 @@ release = '0.1'
 # ones.
 extensions = [
 	'sphinx.ext.autodoc',
-	'sphinx.ext.napoleon'
+	'sphinx.ext.napoleon',
+	'sphinx.ext.viewcode',
+	'sphinx.ext.autosummary'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -59,3 +62,13 @@ html_favicon = '_static/favicon.ico'
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+# generate autosummary even if no references
+autosummary_generate = True
+autosummary_imported_members = True
+
+autodoc_mock_imports = [
+	"yaml", "numpy", "torch",
+	"networkx", "scipy", "skimage",
+	"numba"
+]
