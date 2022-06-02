@@ -36,7 +36,8 @@ extensions = [
 	'sphinx.ext.autodoc',
 	'sphinx.ext.napoleon',
 	'sphinx.ext.viewcode',
-	'sphinx.ext.autosummary'
+	'sphinx.ext.autosummary',
+	'sphinx.ext.autosectionlabel'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -72,3 +73,5 @@ autodoc_mock_imports = [
 	"networkx", "scipy", "skimage",
 	"numba"
 ]
+
+autosectionlabel_prefix_document = True
