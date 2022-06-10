@@ -266,7 +266,7 @@ def mask_iou(mask1, mask2, return_intersection=False):
     iou = intersection / union
 
     if return_intersection:
-        return iou, intersect
+        return iou, intersection
     else:
         return iou
 
