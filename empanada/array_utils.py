@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import numba
+from scipy.sparse import csr_matrix
 
 def take(array, indices, axis=0):
     r"""Take indices from array along an axis
@@ -124,21 +125,6 @@ def merge_boxes(box1, box2):
     return tuple(merged_box)
 
 def box_iou(boxes1, boxes2=None, return_intersection=False):
-    r"""Calculates the pairwise intersection-over-union between sets of boxes.
-
-    Args:
-        boxes1: Array of size (n, 4) or (n, 6) where bounding box
-            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-
-        boxes2: Array of size (m, 4) or (m, 6) where bounding box
-            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-            If None, then pairwise IoUs are calculated between
-            all pairs of boxes in boxes1. Default, None.
-
-    Returns:
-        ious: Array of (n, m) defining pairwise IoUs between boxes.
-
-    """
     # do pairwise box iou if no boxes2
     if boxes2 is None:
         boxes2 = boxes1
@@ -154,6 +140,71 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
         return iou, intersect
     else:
         return iou
+    
+@numba.jit(nopython=True)
+def _box_iou(boxes1, boxes2):
+    ndim = boxes1.shape[1] // 2
+
+    rows = []
+    cols = []
+    ious = []
+    intersects = []
+    for x,box1 in enumerate(boxes1):
+        for y,box2 in enumerate(boxes2):
+            intersect = 1
+            area1 = 1
+            area2 = 1
+            for i in range(ndim):
+                max_low = max(box1[i], box2[i])
+                min_high = min(box1[i+ndim], box2[i+ndim])
+                intersect *= max(0, min_high - max_low)
+                area1 *= box1[i+ndim] - box1[i]
+                area2 *= box2[i+ndim] - box2[i]
+                if intersect == 0:
+                        break
+
+            if intersect > 0:
+                rows.append(x)
+                cols.append(y)
+                ious.append(intersect / (area1 + area2 - intersect))
+                intersects.append(intersect)
+
+    return rows, cols, ious, intersects
+
+def box_iou(boxes1, boxes2=None, return_intersection=False):
+    r"""Calculates the pairwise intersection-over-union between sets of boxes.
+
+    Args:
+        boxes1: Array of size (n, 4) or (n, 6) where bounding box
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+        boxes2: Array of size (m, 4) or (m, 6) where bounding box
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            If None, then pairwise IoUs are calculated between
+            all pairs of boxes in boxes1. Default, None.
+            
+        return_intersection: Bool. If True, intersection areas are returned.
+
+    Returns:
+        ious: Sparse CSR matirx of (n, m) defining pairwise IoUs between boxes.
+        
+        intersections: Returned if return_intersections is True. Sparse 
+            CSR matirx of (n, m) defining intersection areas between boxes.
+
+    """
+    # do pairwise box iou if no boxes2
+    if boxes2 is None:
+        boxes2 = boxes1
+
+    shape = (len(boxes1), len(boxes2))
+    rows, cols, ious, intersects = _box_iou(boxes1, boxes2)
+
+    iou_csr = csr_matrix((ious, (rows, cols)), shape=shape)
+    if return_intersection:
+        intersect_csr = csr_matrix((intersects, (rows, cols)), shape=shape)
+        return iou_csr, intersect_csr
+    else:
+        return iou_csr
 
 def rle_encode(indices):
     r"""Run length encodes an array of 1d indices.

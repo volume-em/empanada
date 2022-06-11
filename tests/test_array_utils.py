@@ -95,14 +95,14 @@ def test_box_functions(boxes1, boxes2):
     # 2D pairwise iou
     union2d = area2d[:, None] + area2d[None, :] - pint2d
     assert_almost_equal(
-        array_utils.box_iou(boxes1[0]),
+        array_utils.box_iou(boxes1[0]).todense(),
         pint2d / union2d
     )
 
     # 3D pairwise iou
     union3d = area3d[:, None] + area3d[None, :] - pint3d
     assert_almost_equal(
-        array_utils.box_iou(boxes1[1]),
+        array_utils.box_iou(boxes1[1]).todense(),
         pint3d / union3d
     )
 

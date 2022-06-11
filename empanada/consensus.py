@@ -1,4 +1,3 @@
-import math
 import numpy as np
 import networkx as nx
 from itertools import combinations
@@ -213,12 +212,10 @@ def bounding_box_screening(boxes, source_indices):
     # compute pairwise overlaps for all distance boxes
     # TODO: replace pairwise intersection calculation with something
     # more memory efficient (only matters when N is large ~10^4)
-    box_ious, box_overlap = box_iou(boxes, return_intersection=True)
-
+    box_ious = box_iou(boxes)
+    
     # use small value to weed out really trivial overlaps
-    box_matches = np.array(
-        np.where(np.logical_or(box_overlap > MIN_OVERLAP, box_ious > MIN_IOU))
-    ).T
+    box_matches = np.array(box_ious.nonzero()).T
 
     # filter out boxes from the same source (mask or tracker)
     r1_match_tr = source_indices[box_matches[:, 0]]
@@ -419,6 +416,115 @@ def merge_objects_from_trackers(
             sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
             all_ranges = all_ranges[sort_idx]
             voted_ranges = np.array(rle_voting(all_ranges, pixel_vote_thr))
+
+            if len(voted_ranges) > 0:
+                cluster_instances[cluster_id] = {}
+                cluster_instances[cluster_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+
+                cluster_instances[cluster_id]['starts'] = voted_ranges[:, 0]
+                cluster_instances[cluster_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+
+                cluster_id += 1
+
+        # merge together instances with higher than trivial overlap
+        for instance_attrs in merge_overlapping(cluster_instances):
+            instances[instance_id] = instance_attrs
+            instance_id += 1
+
+    return instances
+
+def merge_objects_from_tiles(
+    tiles,
+    overlap_rles
+):
+    overlap_starts, overlap_runs = overlap_rles
+
+    # unpack the instances from each tracker
+    # into arrays for labels, bounding boxes
+    # and voxel locations
+    tile_indices = []
+    object_labels = []
+    object_boxes = []
+    object_starts = []
+    object_runs = []
+    for tile_idx, tile_instances in enumerate(tiles):
+        for instance_id, instance_attr in tile_instances.items():
+            tile_indices.append(tile_idx)
+            object_labels.append(int(instance_id))
+            object_boxes.append(instance_attr['box'])
+            object_starts.append(instance_attr['starts'])
+            object_runs.append(instance_attr['runs'])
+
+    # store in arrays for convenient slicing
+    tile_indices = np.array(tile_indices)
+    object_labels = np.array(object_labels)
+    object_boxes = np.array(object_boxes)
+
+    if len(object_boxes) == 0:
+        # no instances to return
+        return {}
+
+    # screen possible matches by bounding box first
+    box_matches = bounding_box_screening(object_boxes, tile_indices)
+
+    # create graph with nodes
+    graph = nx.Graph()
+    for node_id in range(len(object_labels)):
+        graph.add_node(
+            node_id, box=object_boxes[node_id],
+            starts=object_starts[node_id],
+            runs=object_runs[node_id]
+        )
+
+    # iou as weighted edges
+    for r1, r2 in zip(*tuple(box_matches.T)):
+        pair_iou, inter_area = rle_iou(
+            graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
+            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+            return_intersection=True
+        )
+
+        # add edge for non-trivial overlaps
+        if pair_iou > MIN_IOU or inter_area > MIN_OVERLAP:
+            graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
+
+    instance_id = 1
+    instances = {}
+    for comp in nx.connected_components(graph):
+        cluster_graph = create_graph_of_clusters(graph.subgraph(comp), 1e-5)
+        cluster_graph = merge_clusters(cluster_graph)
+
+        cluster_id = 1
+        cluster_instances = {}
+        for node in cluster_graph.nodes:
+            cluster = list(cluster_graph.nodes[node]['cluster'])
+            
+            # merge boxes and coords from nodes
+            node0 = cluster[0]
+            merged_box = graph.nodes[node0]['box']
+            for node_id in cluster[1:]:
+                merged_box = merge_boxes(merged_box, graph.nodes[node_id]['box'])
+
+            # vote on indices that should belong to an object
+            all_ranges = np.concatenate([
+                np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1)
+                for node_id in cluster
+            ])
+
+            if len(cluster) > 1:
+                sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
+                all_ranges = all_ranges[sort_idx]
+                
+                # use both plausible vote thresholds
+                voted_ov_ranges = np.array(rle_voting(all_ranges, 2))
+                voted_ranges = np.array(rle_voting(all_ranges, 1))
+
+                # inside the row or col overlaps use the voted_ov_ranges
+                # otherwise use the voted_ranges
+
+
+            else:
+                voted_ranges = all_ranges
 
             if len(voted_ranges) > 0:
                 cluster_instances[cluster_id] = {}
