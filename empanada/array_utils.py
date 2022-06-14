@@ -161,7 +161,7 @@ def _box_iou(boxes1, boxes2):
                 area1 *= box1[i+ndim] - box1[i]
                 area2 *= box2[i+ndim] - box2[i]
                 if intersect == 0:
-                        break
+                    break
 
             if intersect > 0:
                 rows.append(x)
@@ -621,6 +621,23 @@ def join_ranges(ranges):
         joined.append(range2)
 
     return joined
+
+@numba.jit(nopython=True)
+def invert_ranges(ranges, size):
+    inverse_ranges = []
+    if ranges[0][0] > 0:
+        inverse_ranges.append([0, ranges[0][0]])
+        
+    for range1, range2 in zip(ranges[:-1], ranges[1:]):
+        s = range1[1]
+        e = range2[0]
+        if s != e:
+            inverse_ranges.append([s, e])
+            
+    if ranges[-1][1] < size:
+        inverse_ranges.append([ranges[-1][1], size])
+        
+    return inverse_ranges
 
 def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
     r"""Joins possible overlapping run length encodings into

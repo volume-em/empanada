@@ -435,9 +435,12 @@ def merge_objects_from_trackers(
 
 def merge_objects_from_tiles(
     tiles,
-    overlap_rles
+    overlap_rles,
+    image_size
 ):
     overlap_starts, overlap_runs = overlap_rles
+    overlap_ranges = np.stack([overlap_starts, overlap_runs + overlap_starts], axis=1)
+    nonoverlap_ranges = np.array(invert_ranges(overlap_ranges, image_size))
 
     # unpack the instances from each tracker
     # into arrays for labels, bounding boxes
@@ -511,20 +514,37 @@ def merge_objects_from_tiles(
                 for node_id in cluster
             ])
 
-            if len(cluster) > 1:
-                sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
-                all_ranges = all_ranges[sort_idx]
+            #if len(cluster) > 1:
+            sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
+            all_ranges = all_ranges[sort_idx]
+
+            # use both plausible vote thresholds
+            voted_ov_ranges = np.array(rle_voting(all_ranges, 2))
+            voted_ranges = np.array(rle_voting(all_ranges, 1))
+            #voted_ranges = np.array(join_ranges(all_ranges))
+
+            # inside the row or col overlaps use the voted_ov_ranges
+            # otherwise use the voted_ranges
+            if len(voted_ov_ranges) > 0:
+                nov_ranges = np.concatenate([voted_ranges, nonoverlap_ranges], axis=0)
+
+                sort_idx = np.argsort(nov_ranges[:, 0], kind='stable')
+                nov_ranges = nov_ranges[sort_idx]
+                voted_nov_ranges = np.array(rle_voting(nov_ranges, 2))
                 
-                # use both plausible vote thresholds
-                voted_ov_ranges = np.array(rle_voting(all_ranges, 2))
-                voted_ranges = np.array(rle_voting(all_ranges, 1))
+                if len(voted_nov_ranges) > 0:
+                    concat_ranges = np.concatenate([voted_ov_ranges, voted_nov_ranges], axis=0)
+                    sort_idx = np.argsort(concat_ranges[:, 0], kind='stable')
+                    concat_ranges = concat_ranges[sort_idx]
+                    voted_ranges = np.array(join_ranges(concat_ranges))
+                else:
+                    voted_ranges = voted_ov_ranges
+            elif len(voted_ranges) > 0:
+                nov_ranges = np.concatenate([voted_ranges, nonoverlap_ranges], axis=0)
 
-                # inside the row or col overlaps use the voted_ov_ranges
-                # otherwise use the voted_ranges
-
-
-            else:
-                voted_ranges = all_ranges
+                sort_idx = np.argsort(nov_ranges[:, 0], kind='stable')
+                nov_ranges = nov_ranges[sort_idx]
+                voted_ranges = np.array(rle_voting(nov_ranges, 2))
 
             if len(voted_ranges) > 0:
                 cluster_instances[cluster_id] = {}
