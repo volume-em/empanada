@@ -537,7 +537,7 @@ def extend_range(range1, range2, num_votes):
     return range1, num_votes
 
 @numba.jit(nopython=True)
-def rle_voting(ranges, vote_thr=2):
+def rle_voting(ranges, vote_thr=2, init_index=None, term_index=None):
     r"""Finds overlapping ranges and tabulates the number
     of votes at each index within those ranges. Outputs
     ranges in which all indices had vote_thr or more votes.
@@ -552,6 +552,7 @@ def rle_voting(ranges, vote_thr=2):
         votes in ranges.
 
     """
+    assert vote_thr > 1, "For vote_thr of 1 use join_ranges instead!"
     # ranges that past the vote_thr
     voted_ranges = []
 
@@ -561,6 +562,10 @@ def rle_voting(ranges, vote_thr=2):
     num_votes = None
 
     for range1,range2 in zip(ranges[:-1], ranges[1:]):
+        if init_index is not None:
+            if range1[0] < init_index:
+                continue
+
         if running_range is None:
             running_range = range1
             # all indices get 1 vote from range1
@@ -582,7 +587,11 @@ def rle_voting(ranges, vote_thr=2):
                 running_range, range2, num_votes
             )
 
-    # if range was still going at the end
+        if term_index is not None and running_range is not None:
+            if running_range[1] > term_index:
+                break
+
+    # if range was still going at the endsplit_range_by_votes(running_range, num_votes, vote_thr)
     # of the loop then finish processing it
     if running_range is not None:
         voted_ranges.extend(
@@ -591,8 +600,46 @@ def rle_voting(ranges, vote_thr=2):
 
     return voted_ranges
 
+def vote_by_ranges(list_of_ranges, vote_thr=2):
+    # remove empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+
+    # do a join if the vote_thr is 1
+    if vote_thr == 1:
+        return join_ranges(list_of_ranges)
+
+    if len(list_of_ranges) >= vote_thr:
+        # get all the starts and ends of the ranges
+        starts = sorted([r[0][0] for r in list_of_ranges])
+        ends = sorted([r[-1][1] for r in list_of_ranges])
+
+        init_index = starts[vote_thr - 1]
+        term_index = ends[-vote_thr] + 1
+
+        ranges = concat_sort_ranges(list_of_ranges)
+        return np.array(rle_voting(ranges, vote_thr, init_index, term_index))
+    else:
+        return np.array([])
+
+def rle_to_ranges(rle):
+    return np.cumsum(rle, axis=1)
+
+def ranges_to_rle(ranges):
+    ranges = ranges.copy()
+    ranges[:, 1] = ranges[:, 1] - ranges[:, 0]
+    return ranges
+
+def concat_sort_ranges(list_of_ranges):
+    # filter out empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+    if list_of_ranges:
+        ranges = np.concatenate(list_of_ranges, axis=0)
+        sort_idx = np.argsort(ranges[:, 0], kind='stable')
+
+    return ranges[sort_idx]
+
 @numba.jit(nopython=True)
-def join_ranges(ranges):
+def _join_ranges(ranges):
     r"""Joins overlapping ranges into non-overlapping ranges.
 
     Args:
@@ -621,6 +668,14 @@ def join_ranges(ranges):
         joined.append(range2)
 
     return joined
+
+def join_ranges(list_of_ranges):
+    # remove empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+
+    # concat and sort the ranges
+    ranges = concat_sort_ranges(list_of_ranges)
+    return  np.array(_join_ranges(ranges))
 
 @numba.jit(nopython=True)
 def invert_ranges(ranges, size):
@@ -659,20 +714,20 @@ def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
 
     """
     # convert from runs to ranges
+    list_of_ranges = []
+    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+    list_of_ranges.append(ranges_a)
+
     if starts_b is not None and runs_b is not None:
-        ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
         ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-        merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
-    else:
-        merged_ranges = np.stack([starts_a, starts_a + runs_a], axis=1)
+        list_of_ranges.append(ranges_b)
 
-    sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
-    merged_ranges = merged_ranges[sort_indices]
-
-    joined = np.array(join_ranges(merged_ranges))
+    # join the ranges
+    joined = join_ranges(list_of_ranges)
+    joined = ranges_to_rle(joined)
 
     # convert from ranges to runs
-    return joined[:, 0], joined[:, 1] - joined[:, 0]
+    return joined[:, 0], joined[:, 1]
 
 def numpy_fill_instances(volume, instances):
     r"""Helper function to fill numpy volume with run length encoded instances"""

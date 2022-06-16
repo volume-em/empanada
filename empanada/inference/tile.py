@@ -7,6 +7,18 @@ from empanada.array_utils import rle_voting, merge_rles
 __all__ = ['Tiler']
 
 def calculate_overlap_rle(yranges, xranges, image_shape):
+    r"""Creates a run length encoding of the overlap between tiles.
+
+    Args:
+        yranges (list): List of tuples of the form (ymin, ymax)
+        xranges (list): List of tuples of the form (xmin, xmax)
+        image_shape (tuple): Shape of the image (h, w)
+
+    Returns:
+        starts: Array of (n,), the run length encoding starts.
+        runs: Array of (n,), the run length encoding runs.
+
+    """
     y = np.array(
         rle_voting(np.unique(np.stack(yranges, axis=0), axis=0), vote_thr=2)
     )
@@ -47,6 +59,17 @@ class Tiler:
         tile_size=2048, 
         overlap_width=128
     ):
+        r"""Creates a tiling strategy for a given image shape.
+
+        Args:
+            image_shape: Tuple of image (height, width). Must be 2D.
+
+            tile_size: Integer or Tuple. Size of the tile in pixels.
+                If an integer, the tiles will be square.
+
+            overlap_width: Integer. Minimum number of pixels to overlap between tiles.
+
+        """
         if isinstance(tile_size, int):
             tile_size = (tile_size, tile_size)
             
@@ -89,6 +112,8 @@ class Tiler:
         return len(self.yranges)
 
     def overlap_mask(self):
+        r"""Returns an array showing the overlapping areas between tiles.
+        """
         overlap = np.zeros(np.prod(self.image_shape))
         for s,r in zip(self.overlap_rle[0], self.overlap_rle[1]):
             overlap[s:s + r] = 1
@@ -96,6 +121,23 @@ class Tiler:
         return overlap.reshape(self.image_shape)
 
     def translate_rle_seg(self, rle_seg, tile_index):
+        r"""Translates the bounding box and run length encoding
+        start indices from the tile coordinate frame to the
+        global coordinate frame.
+
+        Args:
+            rle_seg: A run length encoded segmentation mask like the
+                output of pan_seg_to_rle_seg.
+
+            tile_index: Integer. The index of the tile represented by
+                the rle_seg. Must be within length of this tiler.
+
+        Returns:
+            translated_rle_seg: The run length encoded segmentation mask
+                with translated instance boxes and rles. Note, that the
+                translation happens inplace.
+
+        """
         # get position of the tile from index
         ys, ye = self.yranges[tile_index]
         xs, xe = self.xranges[tile_index]
@@ -127,6 +169,18 @@ class Tiler:
         return rle_seg
 
     def __call__(self, image, tile_index):
+        r"""Crops the given image into a particular tile.
+
+        Args:
+            image: Array of (h, w).
+
+            tile_index: Integer. Index of the tile to crop. 
+                Must be within length of this tiler.
+
+        Returns:
+            tile_image: Array of tile_size.
+
+        """
         if tile_index >= len(self):
             raise IndexError("Tile index out of range")
         else:

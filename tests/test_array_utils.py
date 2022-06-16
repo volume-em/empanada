@@ -144,15 +144,11 @@ def test_rle_functions():
     all_indices = np.sort(np.concatenate([indices1, indices2, indices3]))
     unq, votes = np.unique(all_indices, return_counts=True)
 
-    all_ranges = np.concatenate([
+    all_ranges = [
         np.stack([s, s + r], axis=1)
         for s,r in zip([starts1, starts2, starts3], [runs1, runs2, runs3])
-    ])
+    ]
+    voted_ranges = array_utils.vote_by_ranges(all_ranges, 2)
 
-    sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
-    all_ranges = all_ranges[sort_idx]
-    voted_ranges = np.array(array_utils.rle_voting(all_ranges, 2))
-
-    voted_starts = voted_ranges[:, 0]
-    voted_runs = voted_ranges[:, 1] - voted_starts
+    voted_starts, voted_runs = np.split(array_utils.ranges_to_rle(voted_ranges), 2, axis=1)
     assert_equal(array_utils.rle_decode(voted_starts, voted_runs), unq[votes >= 2])
