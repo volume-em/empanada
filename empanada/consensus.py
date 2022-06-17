@@ -281,7 +281,7 @@ def object_iou_graph(
         )
 
         # add edge for non-trivial overlaps
-        if pair_iou > MIN_IOU or inter_area > MIN_OVERLAP:
+        if pair_iou > 0:
             graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
 
     return graph
@@ -523,8 +523,9 @@ def merge_objects_from_tiles(tiles, overlap_rle=None):
     if overlap_rle is not None:
         overlap_starts, overlap_runs = overlap_rle
 
-    instance_id = 1
+    instance_id = int(np.min(object_labels))
     instances = {}
+    print('Number of clusters', len(list(nx.connected_components(graph))))
     for cluster in nx.connected_components(graph):
         cluster = list(cluster)
         

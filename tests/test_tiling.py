@@ -13,7 +13,7 @@ def instance_seg():
     circle = disk(20).astype(np.uint32)
 
     seg_out = np.zeros(shape, dtype=np.uint32)
-    c = 1
+    c = 1001
     for xs in range(0, 351, 50):
         for ys in range(0, 351, 50):    
             ye = ys + 41
