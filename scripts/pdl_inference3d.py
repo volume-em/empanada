@@ -61,8 +61,14 @@ if __name__ == "__main__":
     # read the model config file
     config = load_config(args.config)
 
-    # set device and determine model to load
-    device = torch.device("cuda:0" if torch.cuda.is_available() and not args.use_cpu else "cpu")
+    # check whether GPU or M1 Mac hardware is available
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
+    # determine model to load
     use_quantized = str(device) == 'cpu' and config.get('model_quantized') is not None
     model_key = 'model_quantized' if use_quantized  else 'model'
     

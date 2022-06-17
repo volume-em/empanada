@@ -58,7 +58,14 @@ if __name__ == "__main__":
     # load the weights from online
     state_dict = torch.hub.load_state_dict_from_url(DEFAULT_WEIGHTS, map_location='cpu')
     msg = model.load_state_dict(state_dict)
-    model = model.to('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # check whether GPU or M1 Mac hardware is available
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
+    model = model.to(device)
     model = model.eval()
     cudnn.benchmark = True
 
@@ -97,8 +104,15 @@ if __name__ == "__main__":
     tst_predictions = []
     for data in tqdm(test, total=len(test)):
         with torch.no_grad():
-            # load data onto gpu then forward pass
-            images = data['image'].to('cuda:0' if torch.cuda.is_available() else 'cpu', non_blocking=True)
+            # check whether GPU or M1 Mac hardware is available
+            if torch.cuda.is_available():
+                device = torch.device('cuda:0')
+            elif torch.backends.mps.is_available():
+                device = torch.device('mps')
+            else:
+                device = torch.device('cpu')
+            # load data onto backend then do the forward pass
+            images = data['image'].to(device)
             output = model(images)
             predictions = nn.Sigmoid()(output)
 
