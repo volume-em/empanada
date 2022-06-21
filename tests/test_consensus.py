@@ -88,7 +88,6 @@ def lower_pixel_thr_consensus():
     cons_out = np.zeros(shape, dtype=np.uint32)
     cons_out[:41, :41, :41][s2 > 0] = s2[s2 > 0] * 1
     cons_out[15:56, 15:56, 15:56][s2 > 0] = s2[s2 > 0] * 1
-    cons_out[55, 35, 35] = 0
     
     return cons_out
 
@@ -101,8 +100,6 @@ def bypass_consensus():
     cons_out[:41, :41, :41][s2 > 0] = s2[s2 > 0] * 1
     cons_out[15:56, 15:56, 15:56][s2 > 0] = s2[s2 > 0] * 1
     cons_out[:41, 59:100, 59:100][s2 > 0] = s2[s2 > 0] * 2
-    cons_out[55, 35, 35] = 0
-    cons_out[40, 79, 79] = 0
     
     return cons_out
 
@@ -126,7 +123,6 @@ def semantic_consensus_lower_thr():
     cons_out[:41, :41, :41][s2 > 0] = s2[s2 > 0] * 1
     cons_out[15:56, 15:56, 15:56][s2 > 0] = s2[s2 > 0] * 1
     cons_out[:41, 59:100, 59:100][s2 > 0] = s2[s2 > 0] * 1
-    cons_out[55, 35, 35] = 0
     
     return cons_out
 
@@ -143,7 +139,7 @@ def test_cluster_thr_consensus(object_trackers, lower_cluster_thr_consensus):
     
     cons = consensus.merge_objects_from_trackers([xy_tracker, xz_tracker, yz_tracker], pixel_vote_thr=2, cluster_iou_thr=0.5, bypass=False)
     cons_v = array_utils.numpy_fill_instances(np.zeros(xy_tracker.shape3d, dtype=np.uint32), cons)
-    
+
     assert_equal(cons_v, lower_cluster_thr_consensus)
     
 def test_pixel_thr_consensus(object_trackers, lower_pixel_thr_consensus):

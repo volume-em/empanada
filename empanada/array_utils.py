@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import numba
+from scipy.sparse import csr_matrix
 
 def take(array, indices, axis=0):
     r"""Take indices from array along an axis
@@ -124,21 +125,6 @@ def merge_boxes(box1, box2):
     return tuple(merged_box)
 
 def box_iou(boxes1, boxes2=None, return_intersection=False):
-    r"""Calculates the pairwise intersection-over-union between sets of boxes.
-
-    Args:
-        boxes1: Array of size (n, 4) or (n, 6) where bounding box
-            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-
-        boxes2: Array of size (m, 4) or (m, 6) where bounding box
-            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
-            If None, then pairwise IoUs are calculated between
-            all pairs of boxes in boxes1. Default, None.
-
-    Returns:
-        ious: Array of (n, m) defining pairwise IoUs between boxes.
-
-    """
     # do pairwise box iou if no boxes2
     if boxes2 is None:
         boxes2 = boxes1
@@ -154,6 +140,71 @@ def box_iou(boxes1, boxes2=None, return_intersection=False):
         return iou, intersect
     else:
         return iou
+    
+@numba.jit(nopython=True)
+def _box_iou(boxes1, boxes2):
+    ndim = boxes1.shape[1] // 2
+
+    rows = []
+    cols = []
+    ious = []
+    intersects = []
+    for x,box1 in enumerate(boxes1):
+        for y,box2 in enumerate(boxes2):
+            intersect = 1
+            area1 = 1
+            area2 = 1
+            for i in range(ndim):
+                max_low = max(box1[i], box2[i])
+                min_high = min(box1[i+ndim], box2[i+ndim])
+                intersect *= max(0, min_high - max_low)
+                area1 *= box1[i+ndim] - box1[i]
+                area2 *= box2[i+ndim] - box2[i]
+                if intersect == 0:
+                    break
+
+            if intersect > 0:
+                rows.append(x)
+                cols.append(y)
+                ious.append(intersect / (area1 + area2 - intersect))
+                intersects.append(intersect)
+
+    return rows, cols, ious, intersects
+
+def box_iou(boxes1, boxes2=None, return_intersection=False):
+    r"""Calculates the pairwise intersection-over-union between sets of boxes.
+
+    Args:
+        boxes1: Array of size (n, 4) or (n, 6) where bounding box
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+        boxes2: Array of size (m, 4) or (m, 6) where bounding box
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+            If None, then pairwise IoUs are calculated between
+            all pairs of boxes in boxes1. Default, None.
+            
+        return_intersection: Bool. If True, intersection areas are returned.
+
+    Returns:
+        ious: Sparse CSR matirx of (n, m) defining pairwise IoUs between boxes.
+        
+        intersections: Returned if return_intersections is True. Sparse 
+            CSR matirx of (n, m) defining intersection areas between boxes.
+
+    """
+    # do pairwise box iou if no boxes2
+    if boxes2 is None:
+        boxes2 = boxes1
+
+    shape = (len(boxes1), len(boxes2))
+    rows, cols, ious, intersects = _box_iou(boxes1, boxes2)
+
+    iou_csr = csr_matrix((ious, (rows, cols)), shape=shape)
+    if return_intersection:
+        intersect_csr = csr_matrix((intersects, (rows, cols)), shape=shape)
+        return iou_csr, intersect_csr
+    else:
+        return iou_csr
 
 def rle_encode(indices):
     r"""Run length encodes an array of 1d indices.
@@ -266,7 +317,7 @@ def mask_iou(mask1, mask2, return_intersection=False):
     iou = intersection / union
 
     if return_intersection:
-        return iou, intersect
+        return iou, intersection
     else:
         return iou
 
@@ -486,7 +537,7 @@ def extend_range(range1, range2, num_votes):
     return range1, num_votes
 
 @numba.jit(nopython=True)
-def rle_voting(ranges, vote_thr=2):
+def rle_voting(ranges, vote_thr=2, init_index=None, term_index=None):
     r"""Finds overlapping ranges and tabulates the number
     of votes at each index within those ranges. Outputs
     ranges in which all indices had vote_thr or more votes.
@@ -501,6 +552,7 @@ def rle_voting(ranges, vote_thr=2):
         votes in ranges.
 
     """
+    assert vote_thr > 1, "For vote_thr of 1 use join_ranges instead!"
     # ranges that past the vote_thr
     voted_ranges = []
 
@@ -510,6 +562,10 @@ def rle_voting(ranges, vote_thr=2):
     num_votes = None
 
     for range1,range2 in zip(ranges[:-1], ranges[1:]):
+        if init_index is not None:
+            if range1[0] < init_index:
+                continue
+
         if running_range is None:
             running_range = range1
             # all indices get 1 vote from range1
@@ -531,7 +587,11 @@ def rle_voting(ranges, vote_thr=2):
                 running_range, range2, num_votes
             )
 
-    # if range was still going at the end
+        if term_index is not None and running_range is not None:
+            if running_range[1] > term_index:
+                break
+
+    # if range was still going at the endsplit_range_by_votes(running_range, num_votes, vote_thr)
     # of the loop then finish processing it
     if running_range is not None:
         voted_ranges.extend(
@@ -540,8 +600,46 @@ def rle_voting(ranges, vote_thr=2):
 
     return voted_ranges
 
+def vote_by_ranges(list_of_ranges, vote_thr=2):
+    # remove empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+
+    # do a join if the vote_thr is 1
+    if vote_thr == 1:
+        return join_ranges(list_of_ranges)
+
+    if len(list_of_ranges) >= vote_thr:
+        # get all the starts and ends of the ranges
+        starts = sorted([r[0][0] for r in list_of_ranges])
+        ends = sorted([r[-1][1] for r in list_of_ranges])
+
+        init_index = starts[vote_thr - 1]
+        term_index = ends[-vote_thr] + 1
+
+        ranges = concat_sort_ranges(list_of_ranges)
+        return np.array(rle_voting(ranges, vote_thr, init_index, term_index))
+    else:
+        return np.array([])
+
+def rle_to_ranges(rle):
+    return np.cumsum(rle, axis=1)
+
+def ranges_to_rle(ranges):
+    ranges = ranges.copy()
+    ranges[:, 1] = ranges[:, 1] - ranges[:, 0]
+    return ranges
+
+def concat_sort_ranges(list_of_ranges):
+    # filter out empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+    if list_of_ranges:
+        ranges = np.concatenate(list_of_ranges, axis=0)
+        sort_idx = np.argsort(ranges[:, 0], kind='stable')
+
+    return ranges[sort_idx]
+
 @numba.jit(nopython=True)
-def join_ranges(ranges):
+def _join_ranges(ranges):
     r"""Joins overlapping ranges into non-overlapping ranges.
 
     Args:
@@ -571,6 +669,31 @@ def join_ranges(ranges):
 
     return joined
 
+def join_ranges(list_of_ranges):
+    # remove empty ranges
+    list_of_ranges = list(filter(lambda x: len(x) > 0, list_of_ranges))
+
+    # concat and sort the ranges
+    ranges = concat_sort_ranges(list_of_ranges)
+    return  np.array(_join_ranges(ranges))
+
+@numba.jit(nopython=True)
+def invert_ranges(ranges, size):
+    inverse_ranges = []
+    if ranges[0][0] > 0:
+        inverse_ranges.append([0, ranges[0][0]])
+        
+    for range1, range2 in zip(ranges[:-1], ranges[1:]):
+        s = range1[1]
+        e = range2[0]
+        if s != e:
+            inverse_ranges.append([s, e])
+            
+    if ranges[-1][1] < size:
+        inverse_ranges.append([ranges[-1][1], size])
+        
+    return inverse_ranges
+
 def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
     r"""Joins possible overlapping run length encodings into
     a single set of non-overlapping rles.
@@ -591,20 +714,20 @@ def merge_rles(starts_a, runs_a, starts_b=None, runs_b=None):
 
     """
     # convert from runs to ranges
+    list_of_ranges = []
+    ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
+    list_of_ranges.append(ranges_a)
+
     if starts_b is not None and runs_b is not None:
-        ranges_a = np.stack([starts_a, starts_a + runs_a], axis=1)
         ranges_b = np.stack([starts_b, starts_b + runs_b], axis=1)
-        merged_ranges = np.concatenate([ranges_a, ranges_b], axis=0)
-    else:
-        merged_ranges = np.stack([starts_a, starts_a + runs_a], axis=1)
+        list_of_ranges.append(ranges_b)
 
-    sort_indices = np.argsort(merged_ranges[:, 0], axis=0, kind='stable')
-    merged_ranges = merged_ranges[sort_indices]
-
-    joined = np.array(join_ranges(merged_ranges))
+    # join the ranges
+    joined = join_ranges(list_of_ranges)
+    joined = ranges_to_rle(joined)
 
     # convert from ranges to runs
-    return joined[:, 0], joined[:, 1] - joined[:, 0]
+    return joined[:, 0], joined[:, 1]
 
 def numpy_fill_instances(volume, instances):
     r"""Helper function to fill numpy volume with run length encoded instances"""

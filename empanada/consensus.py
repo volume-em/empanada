@@ -1,7 +1,7 @@
-import math
 import numpy as np
 import networkx as nx
 from itertools import combinations
+from tqdm import tqdm
 from empanada.array_utils import *
 
 MIN_OVERLAP = 100
@@ -213,12 +213,10 @@ def bounding_box_screening(boxes, source_indices):
     # compute pairwise overlaps for all distance boxes
     # TODO: replace pairwise intersection calculation with something
     # more memory efficient (only matters when N is large ~10^4)
-    box_ious, box_overlap = box_iou(boxes, return_intersection=True)
-
+    box_ious = box_iou(boxes)
+    
     # use small value to weed out really trivial overlaps
-    box_matches = np.array(
-        np.where(np.logical_or(box_overlap > MIN_OVERLAP, box_ious > MIN_IOU))
-    ).T
+    box_matches = np.array(box_ious.nonzero()).T
 
     # filter out boxes from the same source (mask or tracker)
     r1_match_tr = source_indices[box_matches[:, 0]]
@@ -231,6 +229,62 @@ def bounding_box_screening(boxes, source_indices):
     box_matches = np.unique(box_matches, axis=0)
 
     return box_matches
+
+def object_iou_graph(
+    source_indices,
+    object_labels, 
+    object_boxes, 
+    object_starts, 
+    object_runs
+):
+    r"""Creates a graph where each node is an object and each edge
+    represents non-zero overlaps between objects.
+
+    Args:
+        source_indices: Array of size (n,) that records the source of each object.
+            E.g., The index of tiles cropped from a larger image.
+
+        objects_labels: Array of size (n,) that records the label of each object.
+
+        object_boxes: Array of size (n, 4) or (n, 6) where bounding box
+            is defined as (y1, x1, y2, x2) or (z1, y1, x1, z2, y2, x2).
+
+        object_starts: Array of size (n,) that records the start index of each
+            object run length encoding.
+
+        object_starts: Array of size (n,) that records the run length of each
+            object run length encoding.
+
+    Returns:
+        object_graph: NetworkX graph where each node is an object and each edge
+            represents non-zero overlaps between objects.
+    
+    """
+    # screen possible matches by bounding box first
+    box_matches = bounding_box_screening(object_boxes, source_indices)
+
+    # create graph with nodes
+    graph = nx.Graph()
+    for node_id in range(len(object_labels)):
+        graph.add_node(
+            node_id, box=object_boxes[node_id],
+            starts=object_starts[node_id],
+            runs=object_runs[node_id]
+        )
+
+    # iou as weighted edges
+    for r1, r2 in zip(*tuple(box_matches.T)):
+        pair_iou, inter_area = rle_iou(
+            graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
+            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
+            return_intersection=True
+        )
+
+        # add edge for non-trivial overlaps
+        if pair_iou > 0:
+            graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
+
+    return graph
 
 def merge_semantic_from_trackers(
     semantic_trackers,
@@ -254,7 +308,6 @@ def merge_semantic_from_trackers(
         For semantic seg there is only a single instance id: 1.
 
     """
-    vol_shape = semantic_trackers[0].shape3d
     
     # extract the run length encoded segmentations
     boxes = []
@@ -277,13 +330,12 @@ def merge_semantic_from_trackers(
         merged_box = merge_boxes(merged_box, box)
             
     # concat rles to ranges
-    seg_ranges = np.concatenate([
+    seg_ranges = [
         np.stack([s, s + r], axis=1) for s,r in zip(starts, runs)
-    ])
+    ]
     
     # sort the ranges and vote on pixels
-    seg_ranges = np.sort(seg_ranges, kind='stable', axis=0)
-    seg_ranges = np.array(rle_voting(seg_ranges, pixel_vote_thr))
+    seg_ranges = vote_by_ranges(seg_ranges, pixel_vote_thr)
     
     seg_attrs = {
         'box': merged_box, 'starts': seg_ranges[:, 0],
@@ -323,7 +375,6 @@ def merge_objects_from_trackers(
         and run length encoding of the instance ('boxes', 'starts', 'runs').
 
     """
-    vol_shape = object_trackers[0].shape3d
     n_votes = len(object_trackers)
 
     if bypass:
@@ -363,29 +414,13 @@ def merge_objects_from_trackers(
         # no instances to return
         return {}
 
-    # screen possible matches by bounding box first
-    box_matches = bounding_box_screening(object_boxes, tracker_indices)
-
-    # create graph with nodes
-    graph = nx.Graph()
-    for node_id in range(len(object_labels)):
-        graph.add_node(
-            node_id, box=object_boxes[node_id],
-            starts=object_starts[node_id],
-            runs=object_runs[node_id]
-        )
-
-    # iou as weighted edges
-    for r1, r2 in zip(*tuple(box_matches.T)):
-        pair_iou, inter_area = rle_iou(
-            graph.nodes[r1]['starts'], graph.nodes[r1]['runs'],
-            graph.nodes[r2]['starts'], graph.nodes[r2]['runs'],
-            return_intersection=True
-        )
-
-        # add edge for non-trivial overlaps
-        if pair_iou > MIN_IOU or inter_area > MIN_OVERLAP:
-            graph.add_edge(r1, r2, iou=pair_iou, overlap=inter_area)
+    # create a graph with a node for each object
+    # and edges that connected objects whose 
+    # masks have non-zero overlap
+    graph = object_iou_graph(
+        tracker_indices, object_labels, object_boxes, 
+        object_starts, object_runs
+    )
 
     instance_id = 1
     instances = {}
@@ -411,14 +446,11 @@ def merge_objects_from_trackers(
                 merged_box = merge_boxes(merged_box, graph.nodes[node_id]['box'])
 
             # vote on indices that should belong to an object
-            all_ranges = np.concatenate([
+            all_ranges = [
                 np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1)
                 for node_id in cluster
-            ])
-
-            sort_idx = np.argsort(all_ranges[:, 0], kind='stable')
-            all_ranges = all_ranges[sort_idx]
-            voted_ranges = np.array(rle_voting(all_ranges, pixel_vote_thr))
+            ]
+            voted_ranges = vote_by_ranges(all_ranges, pixel_vote_thr) 
 
             if len(voted_ranges) > 0:
                 cluster_instances[cluster_id] = {}
@@ -432,6 +464,163 @@ def merge_objects_from_trackers(
         # merge together instances with higher than trivial overlap
         for instance_attrs in merge_overlapping(cluster_instances):
             instances[instance_id] = instance_attrs
+            instance_id += 1
+
+    return instances
+
+def merge_semantic_from_tiles(tiles):
+    r"""Merges run length encoded semantic segmentations
+    from a list of tiles.
+
+    Args:
+        tiles: RLE segmentation of a tile. Segmentations are expected
+            to be for a single instance or semantic class.
+
+    Returns:
+        merged_rles: The merged RLE segmentation for the tiles.
+
+    """
+    # unpack the instances from each tracker
+    # into arrays for labels, bounding boxes
+    # and voxel locations
+    label_id = None
+    boxes = []
+    starts = []
+    runs = []
+    for tile_instances in tiles:
+        for instance_id, instance_attr in tile_instances.items():
+            if label_id is None:
+                label_id = instance_id
+
+            boxes.append(instance_attr['box'])
+            starts.append(instance_attr['starts'])
+            runs.append(instance_attr['runs'])
+
+    boxes = np.array(boxes)
+
+    if len(boxes) == 0:
+        # no instances to return
+        return {}
+
+    # merge the boxes
+    merged_box = boxes[0]
+    for box in boxes[1:]:
+        merged_box = merge_boxes(merged_box, box)
+            
+    # concat rles to ranges
+    seg_ranges = [
+        np.stack([s, s + r], axis=1) for s,r in zip(starts, runs)
+    ]
+    
+    # sort the ranges and vote on pixels
+    seg_ranges = join_ranges(seg_ranges)
+    
+    seg_attrs = {
+        'box': merged_box, 'starts': seg_ranges[:, 0],
+        'runs': seg_ranges[:, 1] - seg_ranges[:, 0]
+    }
+    
+    # value of semantic class is 1 now
+    return {label_id: seg_attrs}
+
+def merge_objects_from_tiles(tiles, overlap_rle=None):
+    r"""Merges run length encoded instance or semantic segmentations
+    from a list of tiles.
+
+    Args:
+        tiles: RLE segmentation of a tile. Segmentations are expected
+            to be for a single instance or semantic class.
+
+        overlap_rle: RLE of the overlapping regions between tiles.
+            E.g., The overlap_rle created by a tiler (see Tiler.overlap_rle).
+            If given, objects detected in the overlapping region are required
+            to be detected in at least 2 tiles. Useful for filtering out
+            false positives but takes longer to compute.
+
+    Returns:
+        merged_rles: The merged RLE segmentation for the tiles.
+
+    """
+    # unpack the instances from each tracker
+    # into arrays for labels, bounding boxes
+    # and voxel locations
+    tile_indices = []
+    object_labels = []
+    object_boxes = []
+    object_starts = []
+    object_runs = []
+    for tile_idx, tile_instances in enumerate(tiles):
+        for instance_id, instance_attr in tile_instances.items():
+            tile_indices.append(tile_idx)
+            object_labels.append(int(instance_id))
+            object_boxes.append(instance_attr['box'])
+            object_starts.append(instance_attr['starts'])
+            object_runs.append(instance_attr['runs'])
+
+    # store in arrays for convenient slicing
+    tile_indices = np.array(tile_indices)
+    object_labels = np.array(object_labels)
+    object_boxes = np.array(object_boxes)
+
+    if len(object_boxes) == 0:
+        # no instances to return
+        return {}
+
+    # create a graph with a node for each object
+    # and edges that connected objects whose 
+    # masks have non-zero overlap
+    graph = object_iou_graph(
+        tile_indices, object_labels, object_boxes, 
+        object_starts, object_runs
+    )
+
+    if overlap_rle is not None:
+        overlap_starts, overlap_runs = overlap_rle
+
+    instance_id = int(np.min(object_labels))
+    instances = {}
+    for cluster in nx.connected_components(graph):
+        cluster = list(cluster)
+        
+        # merge boxes and coords from nodes
+        node0 = cluster[0]
+        merged_box = graph.nodes[node0]['box']
+        for node_id in cluster[1:]:
+            merged_box = merge_boxes(merged_box, graph.nodes[node_id]['box'])
+
+        # vote on indices that should belong to an object
+        all_ranges = [
+            np.stack([graph.nodes[node_id]['starts'], graph.nodes[node_id]['starts'] + graph.nodes[node_id]['runs']], axis=1)
+            for node_id in cluster
+        ]
+
+        # vote thr of 2 works within overlapping tiles
+        # joined ranges works otherwise
+        #voted_ov_ranges = np.array(rle_voting(all_ranges, 2))
+        voted_ranges = join_ranges(all_ranges)
+        if overlap_rle is not None and len(cluster) < 2 and np.any(voted_ranges):
+            voted_rle = ranges_to_rle(voted_ranges)
+
+            # check whether cluster is partially contained
+            # in the overlap region
+            ov_ioa = rle_ioa(
+                overlap_starts, overlap_runs, 
+                voted_rle[:, 0], voted_rle[:, 1]
+            )
+
+            # if greater than 10% of the object is
+            # contained in the overlap region, but
+            # has only 1 vote, then it's likely an FP
+            if ov_ioa > 0.1:
+                voted_ranges = []
+        
+        if np.any(voted_ranges):
+            instances[instance_id] = {}
+            instances[instance_id]['box'] = tuple(map(lambda x: x.item(), merged_box))
+
+            instances[instance_id]['starts'] = voted_ranges[:, 0]
+            instances[instance_id]['runs'] = voted_ranges[:, 1] - voted_ranges[:, 0]
+
             instance_id += 1
 
     return instances
