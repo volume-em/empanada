@@ -328,6 +328,7 @@ def configure_optimizer(model, opt_name, **opt_params):
     """
 
     # easy if there's no weight_decay
+    """
     if 'weight_decay' not in opt_params:
         return optim.__dict__[opt_name](model.parameters(), **opt_params)
     elif opt_params['weight_decay'] == 0:
@@ -365,6 +366,9 @@ def configure_optimizer(model, opt_name, **opt_params):
     param_groups[1]['weight_decay'] = 0 # overwrite default to 0 for no_decay group
 
     return optim.__dict__[opt_name](param_groups, **opt_params)
+    """
+    return optim.__dict__[opt_name](model.parameters(), **opt_params)
+
 
 def train(
     train_loader,

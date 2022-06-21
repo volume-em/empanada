@@ -1,10 +1,10 @@
 dataset_name: "Baselines"
 
 MODEL:
-  config: "/data/conradrw/mitonetv5/PanopticDeepLabPR_epochs120.yaml"
+  config: "/data/conradrw/mitonet_bifpn/PanopticBiFPNPR_mitonet_bifpn_120.yaml"
 
 TRAIN:
-  run_name: "Finetune testing"
+  run_name: "Finetune testing BiFPN"
   
   train_dir: "/data/IASEM/conradrw/data/panoptic/hari_ft/"
   additional_train_dirs: null

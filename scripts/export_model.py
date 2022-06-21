@@ -114,6 +114,7 @@ def main():
 
     # prep the model
     model.load_state_dict(state_dict)
+    model.eval()
     model.fuse_model()
     model.cuda()
     model = torch.jit.script(model)
