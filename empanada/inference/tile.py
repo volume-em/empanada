@@ -1,4 +1,3 @@
-from matplotlib.pyplot import yscale
 import numpy as np
 from cztile.fixed_total_area_strategy import AlmostEqualBorderFixedTotalAreaStrategy2D
 from cztile.tiling_strategy import Rectangle as czrect

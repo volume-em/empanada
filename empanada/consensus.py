@@ -468,6 +468,61 @@ def merge_objects_from_trackers(
 
     return instances
 
+def merge_semantic_from_tiles(tiles):
+    r"""Merges run length encoded semantic segmentations
+    from a list of tiles.
+
+    Args:
+        tiles: RLE segmentation of a tile. Segmentations are expected
+            to be for a single instance or semantic class.
+
+    Returns:
+        merged_rles: The merged RLE segmentation for the tiles.
+
+    """
+    # unpack the instances from each tracker
+    # into arrays for labels, bounding boxes
+    # and voxel locations
+    label_id = None
+    boxes = []
+    starts = []
+    runs = []
+    for tile_instances in tiles:
+        for instance_id, instance_attr in tile_instances.items():
+            if label_id is None:
+                label_id = instance_id
+
+            boxes.append(instance_attr['box'])
+            starts.append(instance_attr['starts'])
+            runs.append(instance_attr['runs'])
+
+    boxes = np.array(boxes)
+
+    if len(boxes) == 0:
+        # no instances to return
+        return {}
+
+    # merge the boxes
+    merged_box = boxes[0]
+    for box in boxes[1:]:
+        merged_box = merge_boxes(merged_box, box)
+            
+    # concat rles to ranges
+    seg_ranges = [
+        np.stack([s, s + r], axis=1) for s,r in zip(starts, runs)
+    ]
+    
+    # sort the ranges and vote on pixels
+    seg_ranges = join_ranges(seg_ranges)
+    
+    seg_attrs = {
+        'box': merged_box, 'starts': seg_ranges[:, 0],
+        'runs': seg_ranges[:, 1] - seg_ranges[:, 0]
+    }
+    
+    # value of semantic class is 1 now
+    return {label_id: seg_attrs}
+
 def merge_objects_from_tiles(tiles, overlap_rle=None):
     r"""Merges run length encoded instance or semantic segmentations
     from a list of tiles.
@@ -483,8 +538,7 @@ def merge_objects_from_tiles(tiles, overlap_rle=None):
             false positives but takes longer to compute.
 
     Returns:
-        merged_rles: The merged RLE segmentation for the tiles. Instances
-            are reindexed starting at 1.
+        merged_rles: The merged RLE segmentation for the tiles.
 
     """
     # unpack the instances from each tracker
@@ -525,7 +579,6 @@ def merge_objects_from_tiles(tiles, overlap_rle=None):
 
     instance_id = int(np.min(object_labels))
     instances = {}
-    print('Number of clusters', len(list(nx.connected_components(graph))))
     for cluster in nx.connected_components(graph):
         cluster = list(cluster)
         
