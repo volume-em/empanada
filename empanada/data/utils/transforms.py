@@ -41,10 +41,13 @@ try:
 
     class FactorPad(A.Lambda):
         def __init__(self, factor=128):
+            super().__init__(image=self.pad_func, mask=self.pad_func)
+            self.factor = factor
 
-            def pad_func(x, **kwargs):
-                return factor_pad(x, factor=factor)
-
-            super().__init__(image=pad_func, mask=pad_func)
+        def pad_func(self, x, **kwargs):
+            return factor_pad(x, factor=self.factor)
+                
+        __all__.append('FactorPad')
+                            
 except ImportError:
     pass
