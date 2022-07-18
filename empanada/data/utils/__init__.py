@@ -8,3 +8,10 @@ try:
     from empanada.data.utils.transforms import FactorPad
 except:
     pass
+
+try:
+    # only necessary for model training,
+    # inference-only empanada doesn't need it
+    from empanada.data.utils.transforms import RandomBrightnessContrast3d
+except:
+    pass

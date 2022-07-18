@@ -3,7 +3,7 @@ import numpy as np
 import numba
 from scipy.sparse import csr_matrix
 
-def take(array, indices, axis=0):
+def take(array, indices, box=None, axis=0):
     r"""Take indices from array along an axis
 
     Args:
@@ -15,12 +15,25 @@ def take(array, indices, axis=0):
         output: np.ndarray
 
     """
-    indices = tuple([
-        slice(None) if n != axis else indices
-        for n in range(array.ndim)
-    ])
-
-    return array[indices]
+    if box is not None:
+        slices = []
+        c = 0
+        for n in range(array.ndim):
+            if n != axis:
+                s, e = box[c], box[c+array.ndim-1]
+                slices.append(slice(s, e))
+                c += 1
+            else:
+                slices.append(indices)
+                
+        slices = tuple(slices)
+    else:            
+        slices = tuple([
+            slice(None) if n != axis else indices
+            for n in range(array.ndim)
+        ])
+        
+    return array[slices]
 
 def put(array, indices, value, axis=0):
     r"""Put values at indices, inplace, along an axis.

@@ -14,6 +14,7 @@ from empanada.consensus import merge_objects_from_trackers, merge_semantic_from_
 
 __all__ = [
     'create_matchers',
+    'create_tile_trackers',
     'create_axis_trackers',
     'apply_matchers',
     'forward_matching',
@@ -36,6 +37,20 @@ def create_matchers(thing_list, label_divisor, merge_iou_thr, merge_ioa_thr):
         for thing_class in thing_list
     ]
     return matchers
+
+def create_tile_trackers(tile_indices, class_labels, label_divisor, shape, axis_name):
+    r"""Create a dictionary of trackers for all classes. Each
+    key is a tile_index (0, 1, 2, etc.) and keys are a list
+    of trackers for each class.
+    """
+    trackers = {}
+    for tile_index in tile_indices:
+        trackers[tile_index] = [
+            InstanceTracker(class_id, label_divisor, shape, axis_name)
+            for class_id in class_labels
+        ]
+
+    return trackers
 
 def create_axis_trackers(axes, class_labels, label_divisor, shape):
     r"""Create a dictionary of trackers for all classes. Each

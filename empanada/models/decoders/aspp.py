@@ -43,9 +43,10 @@ class ASPPPooling(nn.Module):
             self.aspp_pooling[0] = nn.AvgPool2d(kernel_size=pool_size, stride=1)
 
     def forward(self, x):
-        size = x.shape[-2:]
+        size = x.shape[2:]
         x = self.aspp_pooling(x)
-        return F.interpolate(x, size=size, mode='bilinear', align_corners=True)
+        mode = 'bilinear' if len(size) == 2 else 'trilinear'
+        return F.interpolate(x, size=size, mode=mode, align_corners=True)
 
 
 class ASPP(nn.Module):

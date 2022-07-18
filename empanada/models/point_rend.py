@@ -4,6 +4,7 @@ https://github.com/facebookresearch/detectron2/tree/main/projects/PointRend/poin
 
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,13 +34,13 @@ def calculate_uncertainty(logits):
     return uncertainty
 
 @torch.jit.script
-def point_sample(features, point_coords, mode: str="bilinear", align_corners: bool=False):
+def point_sample(features, point_coords, mode: str='bilinear', align_corners: bool=False):
     """
     A wrapper around :function:`torch.nn.functional.grid_sample` to support 3D point_coords tensors.
     Unlike :function:`torch.nn.functional.grid_sample` it assumes `point_coords` to lie inside
     [0, 1] x [0, 1] square.
     Args:
-        input (Tensor): A tensor of shape (N, C, H, W) that contains features map on a H x W grid.
+        features (Tensor): A tensor of shape (N, C, H, W) that contains features map on a H x W grid.
         point_coords (Tensor): A tensor of shape (N, P, 2) or (N, Hgrid, Wgrid, 2) that contains
         [0, 1] x [0, 1] normalized point coordinates.
     Returns:
@@ -47,16 +48,21 @@ def point_sample(features, point_coords, mode: str="bilinear", align_corners: bo
             features for points in `point_coords`. The features are obtained via bilinear
             interplation from `input` the same way as :function:`torch.nn.functional.grid_sample`.
     """
+    dim = 2 if features.ndim == 4 else 3
+    
     add_dim = False
     if point_coords.dim() == 3:
         add_dim = True
-        point_coords = point_coords.unsqueeze(2)
+        if dim == 3:
+            point_coords = point_coords[:, :, None, None]
+        else:
+            point_coords = point_coords[:, :, None]
         
     output = F.grid_sample(features, 2.0 * point_coords - 1.0, mode=mode, align_corners=align_corners)
     
     if add_dim:
-        output = output.squeeze(3)
-        
+        output = output.flatten(-dim, -1)
+            
     return output
 
 @torch.jit.script
@@ -83,22 +89,26 @@ def get_uncertain_point_coords_with_randomness(
     assert importance_sample_ratio <= 1 and importance_sample_ratio >= 0
     num_boxes = coarse_logits.shape[0]
     num_sampled = int(num_points * oversample_ratio)
-    point_coords = torch.rand(num_boxes, num_sampled, 2, device=coarse_logits.device)
+    
+    dim = 2 if coarse_logits.ndim == 4 else 3
+    
+    point_coords = torch.rand(num_boxes, num_sampled, dim, device=coarse_logits.device)
     point_logits = point_sample(coarse_logits, point_coords, align_corners=False)
     
     point_uncertainties = calculate_uncertainty(point_logits)
     num_uncertain_points = int(importance_sample_ratio * num_points)
     num_random_points = num_points - num_uncertain_points
-    
+
     idx = torch.topk(point_uncertainties[:, 0, :], k=num_uncertain_points, dim=1)[1]
     shift = num_sampled * torch.arange(num_boxes, dtype=torch.long, device=coarse_logits.device)
     idx += shift[:, None]
-    point_coords = point_coords.view(-1, 2)[idx.view(-1), :].view(
-        num_boxes, num_uncertain_points, 2
+    
+    point_coords = point_coords.view(-1, dim)[idx.view(-1), :].view(
+        num_boxes, num_uncertain_points, dim
     )
     
     if num_random_points > 0:
-        random_point_coords = torch.rand(num_boxes, num_random_points, 2, device=coarse_logits.device)
+        random_point_coords = torch.rand(num_boxes, num_random_points, dim, device=coarse_logits.device)
         point_coords = torch.cat([
             point_coords,
             random_point_coords
@@ -120,19 +130,27 @@ def get_uncertain_point_coords_on_grid(uncertainty_map, num_points: int):
         point_coords (Tensor): A tensor of shape (N, P, 2) that contains [0, 1] x [0, 1] normalized
             coordinates of the most uncertain points from the H x W grid.
     """
-    R, _, H, W = uncertainty_map.shape
-    h_step = 1.0 / float(H)
-    w_step = 1.0 / float(W)
-
-    num_points = min(H * W, num_points)
-    point_indices = torch.topk(uncertainty_map.view(R, H * W), k=num_points, dim=1)[1]
-    point_coords = torch.zeros(R, num_points, 2, dtype=torch.float, device=uncertainty_map.device)
+    dim = 2 if uncertainty_map.ndim == 4 else 3
     
-    # get image h,w coordinates
-    indices_w = w_step * (point_indices % W).float()
-    indices_h = h_step * torch.div(point_indices, W, rounding_mode='floor').float()
-    point_coords[:, :, 0] = 0.5 * w_step + indices_w
-    point_coords[:, :, 1] = 0.5 * h_step + indices_h
+    R = uncertainty_map.shape[0]
+    spatial_dims = uncertainty_map.shape[-dim:]
+    dsize = 1
+    for s in spatial_dims:
+        dsize *= s
+
+    num_points = min(dsize, num_points)
+    point_indices = torch.topk(uncertainty_map.view(R, dsize), k=num_points, dim=1)[1]
+    point_coords = torch.zeros(R, num_points, dim, dtype=torch.float, device=uncertainty_map.device)
+    
+    divisor = 1
+    for i, size in enumerate(spatial_dims[::-1]):
+        step = 1.0 / float(size)
+        if i == 0:
+            point_coords[:, :, i] = step * (point_indices % size).float()
+        else:
+            point_coords[:, :, i] = step * torch.div(point_indices, divisor, rounding_mode='floor').float()
+            
+        divisor *= size
     
     return point_indices, point_coords
 
@@ -217,6 +235,7 @@ class PointRendSemSegHead(nn.Module):
         self.interpolate = Interpolate2d(2, mode='bilinear', align_corners=False)
 
     def forward(self, coarse_sem_seg_logits, features):
+        dim = 2 if features.ndim == 4 else 3
         # for panoptic deeplab, coarse_sem_seg_logits is at 1/4th resolution
         pr_out = {}
         if self.training:
@@ -257,13 +276,18 @@ class PointRendSemSegHead(nn.Module):
                 point_logits = self.point_head(fine_point_features, coarse_sem_seg_points)
 
                 # put sem seg point predictions to the right places on the upsampled grid.
-                N, C, H, W = sem_seg_logits.size()
+                N, C = sem_seg_logits.size()[:2]
                 point_indices = point_indices.unsqueeze(1).expand(-1, C, -1)
                 
+                spatial_dims = sem_seg_logits.size()[-dim:]
+                dsize = 1
+                for s in spatial_dims:
+                    dsize *= s
+                
                 sem_seg_logits = (
-                    sem_seg_logits.reshape(N, C, H * W)
+                    sem_seg_logits.reshape(N, C, dsize)
                     .scatter_(2, point_indices, point_logits)
-                    .view(N, C, H, W)
+                    .view(N, C, *spatial_dims)
                 )
                 
             pr_out['sem_seg_logits'] = sem_seg_logits

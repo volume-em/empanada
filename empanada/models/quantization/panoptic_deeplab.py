@@ -86,7 +86,15 @@ class QuantizablePanopticDeepLab(nn.Module):
         self.ins_center = PanopticDeepLabHead(decoder_channels, 1)
         self.ins_xy = PanopticDeepLabHead(decoder_channels, 2)
         
-        self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+        # get the interpolation factor from low_level stages
+        if 1 in low_level_stages:
+            f = 4
+        elif 2 in low_level_stages:
+            f = 8
+        else:
+            f = 16
+        
+        self.interpolate = Interpolate2d(f, mode='bilinear', align_corners=True)
             
         _replace_relu(self)
         

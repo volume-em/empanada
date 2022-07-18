@@ -6,6 +6,7 @@ from empanada.models.heads import PanopticDeepLabHead
 from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.blocks import *
 from empanada.models import encoders
+from empanada.models.utils import _make3d
 from typing import List, Tuple
 from copy import deepcopy
 
@@ -28,6 +29,7 @@ class _BaseModel(nn.Module):
         fpn_layers=3,
         ins_decoder=False,
         depthwise=True,
+        dimension=2,
         **kwargs
     ):
         super(_BaseModel, self).__init__()
@@ -63,6 +65,10 @@ class _BaseModel(nn.Module):
         self.ins_xy = PanopticDeepLabHead(fpn_dim, 2)
         
         self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+        
+        self.dimension = dimension
+        if self.dimension == 3:
+            _make3d(self)
             
     def _forward_encoder(self, x):
         return self.encoder(x)

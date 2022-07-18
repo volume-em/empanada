@@ -1,6 +1,7 @@
 import os
 import cv2
 import torch
+import torch.nn.functional as F
 import numpy as np
 from skimage import io
 from skimage import measure
@@ -8,7 +9,8 @@ from empanada.data._base import _BaseDataset
 from empanada.data.utils import seg_to_instance_bd
 
 __all__ = [
-    'BCDataset'
+    'BCDataset',
+    'SoftBCDataset3d'
 ]
 
 class BCDataset(_BaseDataset):
@@ -68,5 +70,64 @@ class BCDataset(_BaseDataset):
         output['fname'] = f
 
         del output['mask']
+
+        return output
+    
+class SoftBCDataset3d(_BaseDataset):
+    def __init__(
+        self,
+        data_dir,
+        transforms=None,
+        weight_gamma=0.3,
+        norms=None,
+    ):
+        r"""Dataset for boundary contour generation that supports a single instance
+        class only.
+
+        Args:
+            data_dir: Str. Directory containing image/mask pairs. Structure should
+            be data_dir -> source_datasets -> images/masks.
+
+            transforms: Albumentations transforms to apply to images and masks.
+
+            weight_gamma: Float (0-1). Parameter than controls sampling of images
+            within different source_datasets based on the number of images
+            that that directory contains. Default is 0.3.
+
+        """
+        super(SoftBCDataset3d, self).__init__(
+            data_dir, transforms, weight_gamma
+        )
+        
+        self.norms = norms
+        
+    def __getitem__(self, idx):
+        # transformed and paste example
+        f = self.impaths[idx]
+        image = np.load(f)
+        mask = np.load(self.mskpaths[idx])
+        
+        assert image.ndim == 3
+        assert mask.ndim == 4 # has 2 channels at first dim
+        
+        output = {'image': image, 'sem': mask[0],  'cnt': mask[1]}
+        
+        if self.transforms is not None:
+            output = self.transforms(**output)
+            
+        # postprocess the output
+        for k,v in output.items():
+            # scale from 0-1 both masks and images
+            v = v / 255
+            
+            # normalize image
+            if k == 'image' and self.norms is not None:
+                v = (v - self.norms[0]) / self.norms[1]
+                v = v[None]
+                
+            # move to torch
+            output[k] = torch.from_numpy(v).float()
+            
+        output['fname'] = f
 
         return output

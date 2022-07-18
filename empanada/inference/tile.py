@@ -166,6 +166,12 @@ class Tiler:
                 ) 
 
         return rle_seg
+    
+    def get_tile_box(self, tile_index):
+        ys, ye = self.yranges[tile_index]
+        xs, xe = self.xranges[tile_index]
+        
+        return [ys, xs, ye, xe]
 
     def __call__(self, image, tile_index):
         r"""Crops the given image into a particular tile.

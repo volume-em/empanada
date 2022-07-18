@@ -21,7 +21,7 @@ class VolumeDataset(Dataset):
         to apply to the image before transformation.
 
     """
-    def __init__(self, array, axis=0, tfs=None, scale=1):
+    def __init__(self, array, axis=0, tfs=None, scale=1, box=None):
         super(VolumeDataset, self).__init__()
         if not math.log(scale, 2).is_integer():
             raise Exception(f'Image rescaling must be log base 2, got {scale}')
@@ -30,13 +30,14 @@ class VolumeDataset(Dataset):
         self.axis = axis
         self.tfs = tfs
         self.scale = scale
+        self.box = box
 
     def __len__(self):
         return self.array.shape[self.axis]
 
     def __getitem__(self, idx):
         # load the image
-        image = take(self.array, idx, self.axis)
+        image = take(self.array, idx, self.box, self.axis)
 
         # if dask, then call compute
         if type(image) == da.core.Array:
