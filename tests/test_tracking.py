@@ -1,5 +1,6 @@
 import os
 import pytest
+import random
 import zarr
 import numpy as np
 from numpy.testing import assert_equal, assert_almost_equal
@@ -55,17 +56,16 @@ def test_tracking_and_filling(tmp_path):
     assert_equal(xz_vol, yz_vol)
 
     # write to zarr and validate results are the same
-
-    # TODO: TEST WILL FAIL FOR UNEVEN CHUNK SIZES WITH
-    # MORE THAN 1 PROCESS!
-
     zarray = zarr.open(os.path.join(tmp_path, 'test.zarr'), mode='w')
-    zarray.create_dataset(
-        'seg', shape=(100, 100, 100), dtype=np.uint32,
-        overwrite=True, chunks=(1, None, None)
-    )
+    # verify that arbitary chunk shapes work
+    for _ in range(20):
+        chunks = tuple(random.randint(10, 100) for _ in range(3))
+        zarray.create_dataset(
+            'seg', shape=(100, 100, 100), dtype=np.uint32,
+            overwrite=True, chunks=chunks
+        )
 
-    zvol = zarray['seg']
-    zarr_utils.zarr_fill_instances(zvol, xy_tracker.instances, 4)
-    zvol = np.array(zvol)
-    assert_equal(zvol, xy_vol)
+        zvol = zarray['seg']
+        zarr_utils.zarr_fill_instances(zvol, xy_tracker.instances, 4)
+        zvol = np.array(zvol)
+        assert_equal(zvol, xy_vol)
