@@ -162,9 +162,11 @@ def bc_watershed(
     if use_mask_wts:
         segm = mask_watershed(foreground, seed)
     else:
-        segm = watershed(-semantic.astype(np.float64), seed, mask=foreground)
+        segm = watershed(-semantic.astype(np.float64), seed, mask=foreground).astype(np.uint32)
 
-    segm = size_threshold(segm, min_size)
+    if min_size is not None:
+        segm = size_threshold(segm, min_size)
+        
     segm[segm > 0] += label_divisor
 
     return cast2dtype(segm)
