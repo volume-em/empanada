@@ -415,24 +415,36 @@ class BCEngine(_Engine):
         assert image.ndim == 4 and image.size(0) == 1
         return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-class BCEngine3d(BCEngine, _MedianQueue):
-    def __init__(self, model, median_kernel_size=3, **kwargs):
+class BCEngine3d(_MedianQueue, BCEngine):
+    def __init__(
+        self, 
+        model, 
+        median_kernel_size=3, 
+        padding_factor=16, 
+        **kwargs
+    ):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
+        self.padding_factor = padding_factor
 
     def end(self):
         # list of remaining segs (1, 2, H, W)
         return list(self.median_queue)[self.mid_idx + 1:]
 
-    def __call__(self, image):
+    def __call__(self, image, size, upsampling=1):
+        assert math.log(upsampling, 2).is_integer(),\
+        "Upsampling factor not log base 2!"
+        
         # check that image is 4d (N, C, H, W) and has a
         # batch dim of 1, larger batch size raises exception
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
+        h, w = size
+        image = factor_pad(image, self.padding_factor)
         image = self.to_model_device(image)
 
         # infer labels and postprocess
-        model_out = self.infer(image)
+        model_out = self.infer(image, int(2 + math.log(upsampling, 2)))
 
         self.enqueue(model_out)
         median_out = self.get_next(keys=['bc'])
@@ -440,4 +452,4 @@ class BCEngine3d(BCEngine, _MedianQueue):
             # nothing to return, we're building the queue
             return None
 
-        return median_out['bc'] # (1, 2, H, W)
+        return median_out['bc'][..., :h, :w] # (1, 2, H, W)
