@@ -106,7 +106,6 @@ def zarr_fill_instances(array, instances, processes=4):
     cd, ch, cw = math.ceil(d / dc), math.ceil(h / hc), math.ceil(w / wc)
     
     # enumerate and define ROIs for each chunk
-    s = time()
     chunks = {}
     for i, z1 in enumerate(range(0, d, dc)):
         for j, y1 in enumerate(range(0, h, hc)):
