@@ -469,6 +469,7 @@ class BCEngine3d(_MedianQueue, BCEngine):
 
         # infer labels and postprocess
         model_out = self.infer(image, int(2 + math.log(upsampling, 2)))
+        model_out['size'] = size
 
         self.enqueue(model_out)
         median_out = self.get_next(keys=['bc'])
