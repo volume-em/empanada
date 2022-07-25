@@ -429,6 +429,17 @@ class BCEngine3d(_MedianQueue, BCEngine):
     def end(self):
         # list of remaining segs (1, 2, H, W)
         return list(self.median_queue)[self.mid_idx + 1:]
+    
+    def end(self, upsampling=1):
+        # any items past self.mid_idx remaining
+        # in the queue are processed and returned
+        final_segs = []
+        for model_out in list(self.median_queue)[self.mid_idx + 1:]:
+            h, w = model_out['size']
+            bc_seg = model_out['bc']
+            final_segs.append(bc_seg[..., :h, :w])
+
+        return final_segs
 
     def __call__(self, image, size, upsampling=1):
         assert math.log(upsampling, 2).is_integer(),\
