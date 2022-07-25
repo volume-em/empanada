@@ -426,6 +426,19 @@ class BCEngine3d(_MedianQueue, BCEngine):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
         self.padding_factor = padding_factor
 
+    @torch.no_grad()
+    def infer(self, image, render_steps=2):            
+        model_out = self.model(image, render_steps)
+        sem_logits = model_out['sem_logits']
+        cnt_logits = model_out['cnt_logits']
+
+        # only works for binary
+        assert sem_logits.size(1) == 1
+        sem = torch.sigmoid(sem_logits)
+        cnt = torch.sigmoid(cnt_logits)
+
+        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
+    
     def end(self):
         # list of remaining segs (1, 2, H, W)
         return list(self.median_queue)[self.mid_idx + 1:]
