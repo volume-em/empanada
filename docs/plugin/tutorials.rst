@@ -88,7 +88,7 @@ Using Batch Mode
   :align: left
   :width: 50%
 
-Batch mode let's you run inference with a given configuration on all images in the
+Batch mode lets you run inference with a given configuration on all images in the
 stack. Running with the options shown on left will create 5 segmentation layers (i.e.,
 one for each image).
 
@@ -98,10 +98,9 @@ Proofreading in 2D
 
 To correct mistakes, use the proofreading tools to paint, erase, merge, split, and delete labels.
 
-Let's look at the second image in the stack. First, select the correct labels layer in the left hand panel
-(**b**). Hover the cursor over the label you'd like to edit and make note of the label ID
-in the bottom left corner of the napari window (**c**). Type this ID in the label field shown in
-panel (**a**). Paint and erase options are denoted by the blue and red arrows in **a**, respectively.
+Let's look at the second image in the stack. First, select the correct labels layer in the lower left hand panel
+(**b**). Next, select the dropper tool, denoted by the green arrow in panel **a**, and click on the label you'd like to edit. 
+Paint and erase tools are denoted by the blue and red arrows in **a**, respectively. Simply click and drag to make corrections.
 
 .. image:: ../_static/paint_erase.png
   :align: center
@@ -112,7 +111,7 @@ Place points by clicking the circle with a plus sign (panel **a**) and clicking 
 The model output is shown in the top left corner of the figure below. After placing points on the
 yellow and purple labels, click the **Merge labels** button. Make sure that the labels layer matches
 the layer you're working on (seen panel **b** in the previous figure), if not you'll get an "out-of-bounds"
-error.
+error. Also, always leave the Apply 3D button unchecked when proofreading in 2D.
 
 This overmerges the two instances. To split them, place a single point anywhere on the yellow label and
 click the **Split labels** button (again making sure the labels layer selected is correct). Adjusting the
@@ -242,11 +241,12 @@ Turn on and off the stack inference results and compare them to ortho-plane resu
 Proofreading in 3D
 """""""""""""""""""""""""
 
-The proofreading operations for 3D data work identically to those for `Proofreading in 2D`_.
+The proofreading operations for 3D data work identically to those for `Proofreading in 2D`_. 
+Simply check the "Apply in 3D" option to merge, split, and delete labels throughout the entire volume.
 
 .. note::
 
-  If you chose to save the segmentations as zarr the proofreading functions
+  If you chose to save the segmentations as zarr the split proofreading function
   will not work. We plan to address this gap in the future.
 
 Exporting 3D

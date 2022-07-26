@@ -1,4 +1,4 @@
-empanada-napari v0.2.0
+empanada-napari
 ************************
 
 The empanada-napari plugin is built to democratize deep learning image segmentation
