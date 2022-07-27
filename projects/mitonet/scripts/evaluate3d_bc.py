@@ -78,7 +78,14 @@ if __name__ == "__main__":
             del state_dict[k]
 
     msg = model.load_state_dict(state['state_dict'], strict=True)
-    model.to('cuda' if torch.cuda.device_count() > 0 else 'cpu') # move model to GPU 0
+    # check whether GPU or M1 Mac hardware is available
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
+    model.to(device)
 
     # set the evaluation transforms
     norms = state['norms']

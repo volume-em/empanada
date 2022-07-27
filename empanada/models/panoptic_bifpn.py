@@ -15,8 +15,8 @@ backbones = sorted(name for name in encoders.__dict__
 )
 
 __all__ = [
-    'PanopticBiFPN',
-    'PanopticBiFPNPR'
+    'PanopticBiFPN',   # simpler model that doesn't upsample. Uses PanopticDeepLabEngine (+ also won't upsample output automatically)
+    'PanopticBiFPNPR'  # what the empanada-napari plugin currently uses. Uses PanopticDeepLabRenderEngine
 ]
 
 class _BaseModel(nn.Module):
