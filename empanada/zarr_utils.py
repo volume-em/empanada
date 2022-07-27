@@ -25,7 +25,7 @@ def chunk_ranges(ranges, modulo, divisor):
         if cs != ce or (r[1] - r[0] > divisor):
             # convert from a range to a list of indices
             # add one because ranges are non-inclusive endpoints
-            range_indices = list(range(r[0], r[1] + 1))
+            range_indices = np.arange(r[0], r[1] + 1, dtype=ranges.dtype)
             cr_indices = [(ri % modulo) // divisor for ri in range_indices]
             split_idx = [0]
             last_c = cr_indices[0]
