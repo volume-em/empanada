@@ -609,15 +609,8 @@ def vote_by_ranges(list_of_ranges, vote_thr=2):
         return join_ranges(list_of_ranges)
 
     if len(list_of_ranges) >= vote_thr:
-        # get all the starts and ends of the ranges
-        starts = sorted([r[0][0] for r in list_of_ranges])
-        ends = sorted([r[-1][1] for r in list_of_ranges])
-
-        init_index = starts[vote_thr - 1]
-        term_index = ends[-vote_thr] + 1
-
         ranges = concat_sort_ranges(list_of_ranges)
-        return np.array(rle_voting(ranges, vote_thr, init_index, term_index))
+        return np.array(rle_voting(ranges, vote_thr))
     else:
         return np.array([])
 
