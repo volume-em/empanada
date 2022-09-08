@@ -25,6 +25,7 @@ __all__ = [
     'create_instance_consensus',
     'create_semantic_consensus',
     'fill_volume',
+    'fill_panoptic_volume',
     'all_gather',
     'forward_multigpu'
 ]
@@ -123,24 +124,10 @@ def update_trackers(
     rle_seg,
     index,
     trackers,
-    axis=None,
-    stack=None
 ):
     r"""Updates trackers for a given axis with forward and
-    backward matched instance segmentations. Optionally, if a
-    numpy or zarr array is given, it stores the final matched
-    panoptic segmentation.
+    backward matched instance segmentations. 
     """
-    assert not (axis is None and stack is not None), \
-    'Storing segs in stack requires an axis!'
-
-    # store the panoptic seg if needed
-    if stack is not None:
-        shape = stack.shape
-        shape2d = tuple([s for i,s in enumerate(shape) if i != axis])
-        pan_seg = rle_seg_to_pan_seg(rle_seg, shape2d)
-        put(stack, index, pan_seg, axis)
-
     # track each instance for each class
     for tracker in trackers:
         class_id = tracker.class_id
@@ -224,6 +211,13 @@ def fill_volume(volume, instances, processes=4):
         zarr_fill_instances(volume, instances, processes)
     else:
         raise Exception(f'Unknown volume type of {type(volume)}')
+
+def fill_panoptic_volume(volume, trackers, processes=4):
+    r"""Fills a numpy or zarr array with the segmentations for all
+    panoptic classes. Runs in-place.
+    """
+    for tracker in trackers:
+        fill_volume(volume, tracker.instances, processes)
 
 #----------------------------------------------------------
 # Utilities for MultiGPU inference

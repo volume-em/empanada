@@ -164,7 +164,11 @@ if __name__ == "__main__":
 
         print(f'Propagating labels backward through the stack...')
         for index,rle_seg in tqdm(backward_matching(rle_stack, matchers, shape[axis]), total=shape[axis]):
-            update_trackers(rle_seg, index, trackers[axis_name], axis, stack)
+            update_trackers(rle_seg, index, trackers[axis_name])
+
+        if stack is not None:
+            print('Storing panoptic segmentation.')
+            fill_panoptic_volume(stack, trackers[axis_name])
 
         finish_tracking(trackers[axis_name])
         for tracker in trackers[axis_name]:
