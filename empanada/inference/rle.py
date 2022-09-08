@@ -17,11 +17,11 @@ __all__ = [
 
 def connected_components(seg):
     if 'cc3d' in sys.modules:
-        seg = cc3d.connected_components(seg, connectivity=8)
+        seg = cc3d.connected_components(seg, connectivity=8, out_dtype=np.uint32)
     else:
         seg = measure.label(seg)
 
-    return seg.astype(seg.dtype)
+    return seg
 
 def pan_seg_to_rle_seg(
     pan_seg,
