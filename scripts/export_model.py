@@ -125,9 +125,15 @@ def main():
     torch.jit.save(model, model_out)
     print('Exported model successfully.')
     
+    dimension = config['MODEL'].get('dimension')
+    if dimension == 3:
+        tensor = torch.randn((1, 1, 128, 128, 128))
+    else:
+        tensor = torch.randn((1, 1, 256, 256))
+    
     # NOTE: Do this after saving or model performance is degraded
     with torch.no_grad():
-        x = torch.randn((1, 1, 256, 256)).cuda()
+        x = tensor.cuda()
         output = model(x)
             
     print('Validated forward pass.')
@@ -176,8 +182,8 @@ def main():
         'dataset_params': config['TRAIN']['dataset_params'],
         'criterion': config['TRAIN']['criterion'],
         'criterion_params': config['TRAIN']['criterion_params'],
-        'engine': config['EVAL']['engine'],
-        'engine_params': config['EVAL']['engine_params'],
+        'engine': config['EVAL'].get('engine'),
+        'engine_params': config['EVAL'].get('engine_params'),
     }
     desc = {
         'model': model_out,

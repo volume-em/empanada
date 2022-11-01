@@ -83,9 +83,10 @@ TRAIN:
 
   # dataset parameters
   batch_size: 64
-  dataset_class: "BCDataset"
-  weight_gamma: 0.3
   workers: 8
+  dataset_class: "BCDataset"
+  dataset_params: 
+      weight_gamma: 0.3
 
   augmentations:
     - { aug: "RandomScale", scale_limit: [ -0.9, 1 ]}
@@ -116,6 +117,7 @@ EVAL:
       - { metric: "IoU", name: "contour_iou", labels: [ 1 ], output_key: "cnt",  target_key: "cnt"}
 
   # parameters needed for inference
+  engine: "BCEngine"
   engine_params:
     thing_list: [ 1 ]
     label_divisor: 1000

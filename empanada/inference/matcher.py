@@ -7,6 +7,8 @@ from empanada.inference.rle import unpack_rle_attrs
 
 __all__ = [
     'fast_matcher',
+    'rle_iou_matrix',
+    'connect_chunk_boundaries',
     'rle_matcher',
     'RLEMatcher'
 ]
@@ -79,8 +81,10 @@ def fast_matcher(
 
     if len(labels1) == 0 or len(labels2) == 0:
         empty = np.array([])
-        if return_ioa:
+        if return_ioa and return_iou:
             # no matches, only labels, no matrices
+            return (empty, empty), (labels1, labels2), empty, empty, empty
+        elif return_iou or return_ioa:
             return (empty, empty), (labels1, labels2), empty, empty
         else:
             return (empty, empty), (labels1, labels2), empty
@@ -133,6 +137,150 @@ def fast_matcher(
 
     return output
 
+def rle_iou_matrix(
+    target_instance_rles,
+    match_instance_rles,
+    return_intersection=False,
+    return_ioa=False
+):
+    r"""Computes the IoU (i.e., cost) matrix for Hungarian matching 
+    on run length encodings.
+
+    Args:
+        target_instance_rles: Dictionary of instances to match against. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs').
+
+        match_instance_rles: Dictionary of instances to match. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs')
+
+        return_intersection: Whether to return total intersection area between
+        instances in target and match.
+
+        return_ioa: Whether to return intersection-over-area (IoA) scores between
+        instances in target and match.
+
+    Returns:
+        iou_matrix: Array of (n, m) pairwise IoU scores between instances
+        in target and match. 
+        
+        intersection_matrix: Array of (n, m) pairwise intersection areas between instances
+        in target and match. Only returned in return_intersection is True.
+
+        ioa_matrix: Array of (n, m) pairwise IoA scores between instances
+        in target and match. Only returned in return_ioa is True.
+    """
+    # extract bounding boxes and labels for
+    # all objects in each instance segmentation
+    target_labels, target_boxes, target_starts, target_runs =\
+    unpack_rle_attrs(target_instance_rles)
+
+    match_labels, match_boxes, match_starts, match_runs =\
+    unpack_rle_attrs(match_instance_rles)
+
+    if len(target_labels) == 0 or len(match_labels) == 0:
+        empty = np.array([])
+        if return_ioa and return_intersection:
+            return empty, empty, empty
+        elif return_ioa or return_intersection:
+            return empty, empty
+        else:
+            return empty
+
+    # compute mask IoUs of all possible matches
+    iou_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
+    
+    if return_intersection:
+        inter_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
+        
+    if return_ioa:
+        ioa_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
+
+    # match the boxes
+    box_matches = np.array(box_iou(target_boxes, match_boxes).nonzero()).T
+    
+    # compute rle overlap scores
+    for r1, r2 in box_matches:
+        iou_out = rle_iou(
+            target_starts[r1], target_runs[r1],
+            match_starts[r2], match_runs[r2],
+            return_intersection=return_intersection
+        )
+        if return_intersection:
+            iou_matrix[r1, r2] = iou_out[0]
+            inter_matrix[r1, r2] = iou_out[1]
+        else:
+            iou_matrix[r1, r2] = iou_out
+            
+        if return_ioa:
+            ioa_matrix[r1, r2] = rle_ioa(
+                target_starts[r1], target_runs[r1],
+                match_starts[r2], match_runs[r2],
+            )
+            
+    if return_intersection and return_ioa:
+        return iou_matrix, inter_matrix, ioa_matrix
+    elif return_intersection:
+        return iou_matrix, inter_matrix
+    elif return_ioa:
+        return iou_matrix, ioa_matrix
+    else:
+        return iou_matrix
+    
+def connect_chunk_boundaries(
+    bound1, 
+    bound2, 
+    iou_thr=0.1, 
+    area_thr=100
+):
+    r"""Finds all connections between labels in neighboring chunks of
+    run length encoded segmentations.
+
+    Args:
+        bound1: Dictionary of instances to match against. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs').
+
+        bound2: Dictionary of instances to match. Keys are
+        instance 'labels' and values are a dictionary of ('box', 'starts', 'runs')
+        
+        iou_thr (float): Minimum iou score between instances in bound1 and bound2
+        to add a connection.
+
+        area_thr (float): Minimum overlap area between instances in bound1 and bound2
+        to add a connection.
+
+    Returns:
+        edges: List of connections as tuple. First item is instance id in
+        bound1 and second item is instance id in bound2.
+
+    """
+    if iou_thr is None and area_thr is None:
+        raise Exception(f'iou_thr and area_thr cannot both be None!')
+    
+    # extract the label ids
+    b1_labels = unpack_rle_attrs(bound1)[0]
+    b2_labels = unpack_rle_attrs(bound2)[0]
+
+    # compute iou and intersection areas
+    iou_matrix, inter_matrix = rle_iou_matrix(
+        bound1, bound2, return_intersection=True
+    )
+    
+    # no matches
+    if not np.any(iou_matrix):
+        return []
+    
+    # mask for where labels are matched
+    mask = np.zeros(iou_matrix.shape, dtype='bool')
+    if iou_thr is not None:
+        mask = np.logical_or(mask, iou_matrix >= iou_thr)
+    if area_thr is not None: 
+        mask = np.logical_or(mask, inter_matrix >= area_thr)
+        
+    n, m = np.where(mask) 
+    edges = np.stack([b1_labels[n], b2_labels[m]], axis=1).tolist()
+    
+    return edges
+
 def rle_matcher(
     target_instance_rles,
     match_instance_rles,
@@ -173,43 +321,37 @@ def rle_matcher(
         ioa_matrix: Array of (n, m) pairwise IoA scores between instances
         in target and match. Only returned in return_ioa is True.
     """
-    # screen matches by bounding box iou
     # extract bounding boxes and labels for
     # all objects in each instance segmentation
     target_labels, target_boxes, target_starts, target_runs =\
     unpack_rle_attrs(target_instance_rles)
-
+    
     match_labels, match_boxes, match_starts, match_runs =\
     unpack_rle_attrs(match_instance_rles)
 
     if len(target_labels) == 0 or len(match_labels) == 0:
         empty = np.array([])
-        if return_ioa:
+        if return_ioa and return_iou:
             # no matches, only labels, no matrices
+            return (empty, empty), (target_labels, match_labels), empty, empty, empty
+        elif return_ioa or return_iou:
             return (empty, empty), (target_labels, match_labels), empty, empty
         else:
             return (empty, empty), (target_labels, match_labels), empty
+        
+    cost_matrix = rle_iou_matrix(
+        target_instance_rles, 
+        match_instance_rles, 
+        return_ioa=return_ioa
+    )
 
-    # compute mask IoUs of all possible matches
-    iou_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype='float')
     if return_ioa:
-        ioa_matrix = np.zeros((len(target_boxes), len(match_boxes)), dtype=np.float32)
+        iou_matrix = cost_matrix[0]
+        ioa_matrix = cost_matrix[1]
+    else:
+        iou_matrix = cost_matrix
 
-    # match the boxes
-    box_matches = np.array(box_iou(target_boxes, match_boxes).nonzero()).T
-    for r1, r2 in box_matches:
-        iou_matrix[r1, r2] = rle_iou(
-            target_starts[r1], target_runs[r1],
-            match_starts[r2], match_runs[r2],
-        )
-
-        if return_ioa:
-            ioa_matrix[r1, r2] = rle_ioa(
-                target_starts[r1], target_runs[r1],
-                match_starts[r2], match_runs[r2],
-            )
-
-    # returns tuple of indices and ious/ioas of instances
+    # maximize matched ious 
     match_rows, match_cols = linear_sum_assignment(iou_matrix, maximize=True)
 
     # filter out matches with iou less than thr

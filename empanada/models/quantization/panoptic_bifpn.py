@@ -8,7 +8,8 @@ from empanada.models.blocks import *
 from typing import List, Dict
 
 __all__ = [
-    'QuantizablePanopticBiFPN'
+    'QuantizablePanopticBiFPN',
+    'QuantizablePanopticBiFPNPR'
 ]
 
 def _replace_relu(module):

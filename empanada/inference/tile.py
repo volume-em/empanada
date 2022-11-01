@@ -1,9 +1,10 @@
+import math
 import numpy as np
 from cztile.fixed_total_area_strategy import AlmostEqualBorderFixedTotalAreaStrategy2D
 from cztile.tiling_strategy import Rectangle as czrect
 from empanada.array_utils import rle_voting, merge_rles
 
-__all__ = ['Tiler']
+__all__ = ['Tiler', 'Cuber']
 
 def calculate_overlap_rle(yranges, xranges, image_shape):
     r"""Creates a run length encoding of the overlap between tiles.
@@ -199,3 +200,79 @@ class Tiler:
         xslice = slice(*self.xranges[tile_index])
 
         return image[yslice, xslice]
+    
+class Cuber:
+    def __init__(self, array_shape, cube_shape):
+        assert len(array_shape) == len(cube_shape) == 3
+        self.array_shape = array_shape
+        self.cube_shape = cube_shape
+        
+        self.chunk_dims = tuple(
+            [math.ceil(s / cs) for s,cs in zip(array_shape, cube_shape)]
+        )
+        
+        self.cubes = self._get_cubes()
+        
+    def _get_cubes(self):
+        r"""Create slicable data cubes for the given array.
+        
+        Returns:
+            cubes (Dict[int, Tuple(slice)]): cube ROIs indexed
+            by the raveled cube index
+        
+        """
+        cubes = {}
+
+        d, h, w = self.array_shape
+        zs, ys, xs = self.cube_shape
+        cd, ch, cw = self.chunk_dims
+        
+        for zc, z in enumerate(range(0, d, zs)):
+            for yc, y in enumerate(range(0, h, ys)):
+                for xc, x in enumerate(range(0, w, xs)):
+                    slices = (
+                        slice(z, min(z + zs, d)),
+                        slice(y, min(y + ys, h)),
+                        slice(x, min(x + xs, w))
+                    )
+
+                    # compute the raveled cube index
+                    cube_index = (zc * ch * cw) + (yc * cw) + xc
+                    cubes[cube_index] = slices
+                    
+        return cubes
+    
+    def find_neighbors(self, cube_index):
+        r"""Finds the indices of cubes to the right, bottom and back
+        of the given cube.
+        
+        Args:
+            cube_index (int): Index of a cube in the Cuber.
+            
+        Returns:
+            neighbors (Tuple[int]): Index of cube neighbors
+            to the right, bottom and back respectively. Any or
+            all of the neighbors may be None.
+        
+        """
+        cd, ch, cw = self.chunk_dims
+        
+        # get the raveled cube indices
+        if (cube_index + 1) % cw != 0:
+            right = cube_index + 1
+        else:
+            right = None
+            
+        if (cube_index // cw + 1) % ch != 0:
+            bottom = cube_index + cw
+        else:
+            bottom = None
+            
+        if (cube_index // (ch * cw) + 1) % cd != 0:
+            back = cube_index + (ch * cw)
+        else:
+            back = None
+        
+        return (right, bottom, back)
+        
+        
