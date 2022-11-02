@@ -170,6 +170,8 @@ if __name__ == "__main__":
     for index2d,seg2d in tqdm(enumerate(instance_seg), total=len(instance_seg)):
         rle_seg = pan_seg_to_rle_seg(seg2d, [1], label_divisor, [1], force_connected=False)
         pred_tracker.update(rle_seg[1], index2d)
+        
+    print('Number of instances', len(pred_tracker.instances))
 
     pred_tracker.finish()
     pred_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))

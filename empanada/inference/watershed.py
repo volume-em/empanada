@@ -133,7 +133,7 @@ def bc_watershed(
     thres3=0.85,
     seed_thres=32,
     min_size=128,
-    label_divisor=1000,
+    label_divisor=None,
     use_mask_wts=False
 ):
     r"""Convert binary foreground probability maps and instance contours to
@@ -163,8 +163,11 @@ def bc_watershed(
         segm = mask_watershed(foreground, seed)
     else:
         segm = watershed(-semantic.astype(np.float64), seed, mask=foreground)
+    
+    if min_size is not None and min_size > 0:
+        segm = size_threshold(segm, min_size)
+    if label_divisor is not None:
+        segm[segm > 0] += label_divisor
 
-    segm = size_threshold(segm, min_size)
-    segm[segm > 0] += label_divisor
-
-    return cast2dtype(segm)
+    #return cast2dtype(segm)
+    return segm

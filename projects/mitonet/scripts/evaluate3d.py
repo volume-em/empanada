@@ -95,7 +95,6 @@ if __name__ == "__main__":
     # create a separate tracker for
     # each prediction axis and each segmentation class
     trackers = create_axis_trackers(axes, class_labels, label_divisor, shape)
-
     for axis_name, axis in axes.items():
         print(f'Predicting {axis_name} stack')
 
@@ -169,7 +168,7 @@ if __name__ == "__main__":
         finish_tracking(trackers[axis_name])
         for tracker in trackers[axis_name]:
             apply_filters(tracker, filters_dict)
-
+    
     # create the final instance segmentations
     for class_id in config['INFERENCE']['labels']:
         class_name = config['DATASET']['class_names'][class_id]
@@ -195,7 +194,7 @@ if __name__ == "__main__":
             overwrite=True, chunks=(1, None, None)
         )
         fill_volume(consensus_vol, consensus_tracker.instances, processes=4)
-        consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred.json'))
+        consensus_tracker.write_to_json(os.path.join(volume_path, f'{config_name}_{class_name}_pred_test.json'))
 
     # run evaluation
     semantic_metrics = {'IoU': iou}
@@ -206,13 +205,13 @@ if __name__ == "__main__":
 
     for class_id, class_name in config['DATASET']['class_names'].items():
         gt_json = os.path.join(volume_path, f'{class_name}_gt.json')
-        pred_json = os.path.join(volume_path, f'{config_name}_{class_name}_pred.json')
+        pred_json = os.path.join(volume_path, f'{config_name}_{class_name}_pred_test.json')
         results = evaluator(gt_json, pred_json)
         results = {f'{class_name}_{k}': v for k,v in results.items()}
 
         for k, v in results.items():
             print(k, v)
-
+            
         try:
             run_id = state.get('run_id')
             if run_id is not None:

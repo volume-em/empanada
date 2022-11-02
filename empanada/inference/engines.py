@@ -10,7 +10,6 @@ from empanada.inference.postprocess import (
 )
 from collections import deque
 
-
 __all__ = [
     'PanopticDeepLabEngine',
     'PanopticDeepLabEngine3d',
@@ -246,8 +245,10 @@ class PanopticDeepLabRenderEngine(PanopticDeepLabEngine):
         self.coarse_boundaries = coarse_boundaries
 
     @torch.no_grad()
-    def infer(self, image, render_steps=2):            
+    def infer(self, image, render_steps=2):
+        #render_steps = 0
         model_out = self.model(image, render_steps, interpolate_ins=not self.coarse_boundaries)
+        #model_out['sem_logits'] = F.interpolate(model_out['sem_logits'], scale_factor=4, mode='bilinear', align_corners=True)
         
         # notice that sem is NOT sem_logits
         model_out['sem'] = logits_to_prob(model_out['sem_logits'])

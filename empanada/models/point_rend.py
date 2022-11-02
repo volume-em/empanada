@@ -279,16 +279,25 @@ class PointRendSemSegHead(nn.Module):
                 N, C = sem_seg_logits.size()[:2]
                 point_indices = point_indices.unsqueeze(1).expand(-1, C, -1)
                 
-                spatial_dims = sem_seg_logits.size()[-dim:]
-                dsize = 1
-                for s in spatial_dims:
-                    dsize *= s
+                # clunky if statements to appease TorchScript...
+                if dim == 3:
+                    D, H, W = sem_seg_logits.size()[-3:]
+                    dsize = D * H * W
+                    
+                    sem_seg_logits = (
+                        sem_seg_logits.reshape(N, C, dsize)
+                        .scatter_(2, point_indices, point_logits)
+                        .view(N, C, D, H, W)
+                    )
+                else:
+                    H, W = sem_seg_logits.size()[-2:]
+                    dsize = H * W
                 
-                sem_seg_logits = (
-                    sem_seg_logits.reshape(N, C, dsize)
-                    .scatter_(2, point_indices, point_logits)
-                    .view(N, C, *spatial_dims)
-                )
+                    sem_seg_logits = (
+                        sem_seg_logits.reshape(N, C, dsize)
+                        .scatter_(2, point_indices, point_logits)
+                        .view(N, C, H, W)
+                    )
                 
             pr_out['sem_seg_logits'] = sem_seg_logits
         

@@ -78,6 +78,8 @@ class SoftBCDataset3d(_BaseDataset):
         self,
         data_dir,
         transforms=None,
+        sem_thr=None,
+        cnt_thr=None,
         weight_gamma=0.3,
         norms=None,
     ):
@@ -99,13 +101,15 @@ class SoftBCDataset3d(_BaseDataset):
             data_dir, transforms, weight_gamma
         )
         
+        self.sem_thr = sem_thr
+        self.cnt_thr = cnt_thr
         self.norms = norms
         
     def __getitem__(self, idx):
         # transformed and paste example
         f = self.impaths[idx]
-        image = np.load(f)
-        mask = np.load(self.mskpaths[idx])
+        image = np.load(f, allow_pickle=True)
+        mask = np.load(self.mskpaths[idx], allow_pickle=True)
         
         assert image.ndim == 3
         assert mask.ndim == 4 # has 2 channels at first dim
@@ -124,6 +128,10 @@ class SoftBCDataset3d(_BaseDataset):
             if k == 'image' and self.norms is not None:
                 v = (v - self.norms[0]) / self.norms[1]
                 v = v[None]
+            elif k == 'sem' and self.sem_thr is not None:
+                v = v >= self.sem_thr
+            elif k == 'cnt' and self.cnt_thr is not None:
+                v = v >= self.cnt_thr
                 
             # move to torch
             output[k] = torch.from_numpy(v).float()

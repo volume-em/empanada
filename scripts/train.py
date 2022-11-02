@@ -564,7 +564,7 @@ def train(
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-
+        
         if i % config['TRAIN']['print_freq'] == 0:
             progress.display(i)
 

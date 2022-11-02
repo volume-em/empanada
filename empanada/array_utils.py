@@ -137,23 +137,6 @@ def merge_boxes(box1, box2):
 
     return tuple(merged_box)
 
-def box_iou(boxes1, boxes2=None, return_intersection=False):
-    # do pairwise box iou if no boxes2
-    if boxes2 is None:
-        boxes2 = boxes1
-
-    intersect = box_intersection(boxes1, boxes2)
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
-
-    # union is a matrix of same size as intersect
-    union = area1[:, None] + area2[None, :] - intersect
-    iou = intersect / union
-    if return_intersection:
-        return iou, intersect
-    else:
-        return iou
-    
 @numba.jit(nopython=True)
 def _box_iou(boxes1, boxes2):
     ndim = boxes1.shape[1] // 2
@@ -623,14 +606,8 @@ def vote_by_ranges(list_of_ranges, vote_thr=2):
 
     if len(list_of_ranges) >= vote_thr:
         # get all the starts and ends of the ranges
-        starts = sorted([r[0][0] for r in list_of_ranges])
-        ends = sorted([r[-1][1] for r in list_of_ranges])
-
-        init_index = starts[vote_thr - 1]
-        term_index = ends[-vote_thr] + 1
-
         ranges = concat_sort_ranges(list_of_ranges)
-        return np.array(rle_voting(ranges, vote_thr, init_index, term_index))
+        return np.array(rle_voting(ranges, vote_thr))
     else:
         return np.array([])
 
