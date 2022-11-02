@@ -15,7 +15,7 @@ __all__ = [
     'PanopticDeepLabEngine3d',
     'PanopticDeepLabRenderEngine',
     'PanopticDeepLabRenderEngine3d',
-    'BCEngine', 'BCEngine3d',
+    'BCEngine', 'BCEngineStack',
 ]
 
 @torch.no_grad()
@@ -416,7 +416,7 @@ class BCEngine(_Engine):
         assert image.ndim == 4 and image.size(0) == 1
         return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-class BCEngine3d(_MedianQueue, BCEngine):
+class BCEngineStack(_MedianQueue, BCEngine):
     def __init__(self, model, median_kernel_size=3, **kwargs):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
 

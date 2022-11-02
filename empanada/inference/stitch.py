@@ -38,14 +38,13 @@ def calculate_global_box(
 def global_instance_graph(
     chunks, 
     cuber, 
-    rle_class, 
     initial_label=1
 ):
     graph = nx.Graph()
     chunk_instance_map = {}
     
     for chunk_idx, chunk_attrs in chunks.items():
-        for label_id, label_attrs in chunk_attrs['rle'][rle_class].items():
+        for label_id, label_attrs in chunk_attrs['rle'].items():
             # add a global label node with info about
             # the source chunk and label
             area = label_attrs['runs'].sum()
@@ -71,7 +70,6 @@ def add_instance_edges(
     chunks, 
     chunk_instance_map, 
     cuber,
-    class_id,
     iou_thr=0.1,
     area_thr=100
 ):
@@ -89,8 +87,8 @@ def add_instance_edges(
             
             a, b = pair
             edges = connect_chunk_boundaries(
-                chunks[chunk_index]['boundaries'][a][class_id],
-                chunks[nix]['boundaries'][b][class_id], 
+                chunks[chunk_index]['boundaries'][a],
+                chunks[nix]['boundaries'][b], 
                 iou_thr, area_thr
             )
             # convert from local to global labels
@@ -154,13 +152,13 @@ def create_forward_map(graph):
             
     return forward_map
 
-def relabel_chunk_rles(chunks, class_id, forward_map):
+def relabel_chunk_rles(chunks, forward_map):
     for chunk_index, chunk_attrs in chunks.items():
         relabeled = {}
         lookup_table = forward_map.get(chunk_index, {})
         
         for old, new in lookup_table.items():
-            old_rle = chunk_attrs['rle'][class_id][old]
+            old_rle = chunk_attrs['rle'][old]
             if new in relabeled:
                 merged_s, merged_r = merge_rles(
                     relabeled[new]['starts'], relabeled[new]['runs'],
@@ -172,4 +170,4 @@ def relabel_chunk_rles(chunks, class_id, forward_map):
             else:
                 relabeled[new] = old_rle
 
-        chunk_attrs['rle'][class_id] = relabeled
+        chunk_attrs['rle'] = relabeled

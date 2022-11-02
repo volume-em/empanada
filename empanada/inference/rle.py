@@ -10,9 +10,11 @@ except:
     pass
 
 __all__ = [
+    'ins_seg_to_rle_seg',
     'pan_seg_to_rle_seg',
     'rle_seg_to_pan_seg',
-    'unpack_rle_attrs'
+    'unpack_rle_attrs',
+    'encode_boundary3d'
 ]
 
 def connected_components(seg):
@@ -22,6 +24,32 @@ def connected_components(seg):
         seg = measure.label(seg)
 
     return seg.astype(seg.dtype)
+
+def ins_seg_to_rle_seg(instance_seg):
+    r"""Converts an instance segmentation to run length encodings.
+
+    Args:
+        ins_seg: Array of (h, w) or (d, h, w) defining an instance segmentation.
+
+    Returns:
+        rle_seg: Nested dictionary. Top level keys are 'instance_ids'. 
+        Keys in the next level are 'box', 'starts', 'runs' that define 
+        the extents and run length encoding of the instance.
+
+    """
+    instance_attrs = {}
+    rps = measure.regionprops(instance_seg)
+    for rp in rps:
+        # convert from label coords to rles
+        coords_flat = np.ravel_multi_index(tuple(rp.coords.T), instance_seg.shape)
+        starts, runs = rle_encode(coords_flat)
+
+        instance_attrs[rp.label] = {
+            'box': rp.bbox, 'starts': starts, 'runs': runs
+        }
+        
+    return instance_attrs
+    
 
 def pan_seg_to_rle_seg(
     pan_seg,
@@ -70,18 +98,8 @@ def pan_seg_to_rle_seg(
             instance_seg = connected_components(instance_seg)
             instance_seg[instance_seg > 0] += min_id
 
-        # measure the regionprops
-        instance_attrs = {}
-        rps = measure.regionprops(instance_seg)
-        for rp in rps:
-            # convert from label xy coords to rles
-            coords_flat = np.ravel_multi_index(tuple(rp.coords.T), instance_seg.shape)
-            starts, runs = rle_encode(coords_flat)
-
-            instance_attrs[rp.label] = {'box': rp.bbox, 'starts': starts, 'runs': runs}
-
         # add to the rle_seg
-        rle_seg[label] = instance_attrs
+        rle_seg[label] = ins_seg_to_rle_seg(instance_seg)
 
     return rle_seg
 
@@ -148,3 +166,23 @@ def unpack_rle_attrs(instance_rle_seg):
             runs.append(attrs['runs'])
 
     return np.array(labels), np.array(boxes), starts, runs
+
+def encode_boundary3d(instance_seg):
+    r"""Run length encodes the front, back, top, bottom, left, and right
+    boundaries of a 3D instance segmentation.
+    """
+    # define slices to use for each boundary
+    slices = {
+        'front': (0, slice(None), slice(None)),
+        'back': (-1, slice(None), slice(None)),
+        'top': (slice(None), 0, slice(None)),
+        'bottom': (slice(None), -1, slice(None)),
+        'left': (slice(None), slice(None), 0),
+        'right': (slice(None), slice(None), -1)
+    }
+    
+    boundaries = {}
+    for name,sl in slices.items():
+        boundaries[name] = ins_seg_to_rle_seg(instance_seg[sl])
+    
+    return boundaries
