@@ -123,12 +123,12 @@ if __name__ == "__main__":
     max_cs = (384, 384, 384)
     
     cs = tuple([s * (m // s) for s,m in zip(volume.chunks, max_cs)])
-    cuber = Cuber(volume.shape, cs)
+    cuber = Cuber(volume.shape, cs, halo=0.1)
     n_cubes = len(cuber.cubes)
     
     for chunk_index, slices in tqdm(cuber.cubes.items(), total=n_cubes):
         # crop the cube of data
-        cube = volume[slices]
+        cube = volume[slices['infer']]
         bd, bh, bw = cube.shape
 
         # preprocess the tensor
@@ -148,13 +148,13 @@ if __name__ == "__main__":
         cnt = 255 * cnt.squeeze().cpu().numpy()
         
         # remove the padding
-        sem = sem[:bd, :bh, :bw]
-        cnt = cnt[:bd, :bh, :bw]
+        sem = sem[:bd, :bh, :bw][slices['cut']]
+        cnt = cnt[:bd, :bh, :bw][slices['cut']]
         
         # store the result
-        seg_slices = (slice(None),) + slices
+        seg_slices = (slice(None),) + slices['fill']
         seg[seg_slices] = np.stack([sem, cnt], axis=0)
-        
+    
     # create the prediction volume
     pred = data.create_dataset(
         'bc3d_mito_pred', shape=volume.shape, dtype=np.uint32, 
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         [seg] * n,
         [pred] * n,
         list(cuber.cubes.keys()),
-        list(cuber.cubes.values())
+        [sl['fill'] for sl in cuber.cubes.values()]
     )
     
     with Pool(8) as pool:
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     print(f'Filling the global segmentation...')
     args_iter = zip(
         [pred] * n_cubes,
-        list(cuber.cubes.values()),
+        [sl['fill'] for sl in cuber.cubes.values()],
         [chunks[ci]['rle'] for ci in cuber.cubes.keys()]
     )
     

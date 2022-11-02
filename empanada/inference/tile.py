@@ -202,10 +202,11 @@ class Tiler:
         return image[yslice, xslice]
     
 class Cuber:
-    def __init__(self, array_shape, cube_shape):
+    def __init__(self, array_shape, cube_shape, halo=0.1):
         assert len(array_shape) == len(cube_shape) == 3
         self.array_shape = array_shape
         self.cube_shape = cube_shape
+        self.halo = tuple([int(s * halo) for s in cube_shape])
         
         self.chunk_dims = tuple(
             [math.ceil(s / cs) for s,cs in zip(array_shape, cube_shape)]
@@ -230,15 +231,29 @@ class Cuber:
         for zc, z in enumerate(range(0, d, zs)):
             for yc, y in enumerate(range(0, h, ys)):
                 for xc, x in enumerate(range(0, w, xs)):
-                    slices = (
+                    global_slices = (
                         slice(z, min(z + zs, d)),
                         slice(y, min(y + ys, h)),
                         slice(x, min(x + xs, w))
                     )
-
+                    
+                    global_halo = tuple([
+                        slice(max(0, sl.start - h), min(s, sl.stop + h))
+                        for h,s,sl in zip(self.halo, self.array_shape, global_slices)
+                    ])
+                    
+                    local_slices = tuple([
+                        slice(gs.start - hs.start, (gs.start - hs.start) + (gs.stop - gs.start))
+                        for gs,hs in zip(global_slices, global_halo)
+                    ])
+                    
                     # compute the raveled cube index
                     cube_index = (zc * ch * cw) + (yc * cw) + xc
-                    cubes[cube_index] = slices
+                    cubes[cube_index] = {
+                        'fill': global_slices,
+                        'cut': local_slices,
+                        'infer': global_halo
+                    }
                     
         return cubes
     
