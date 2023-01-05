@@ -96,7 +96,7 @@ class QuantizablePanopticDeepLab(nn.Module):
         else:
             f = 16
         
-        self.interpolate = Interpolate2d(f, mode='bilinear', align_corners=True)
+        self.interpolate = Interpolate(f, mode='bilinear', align_corners=True)
             
         _replace_relu(self)
         

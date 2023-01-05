@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 from empanada.models.decoders import PanopticDeepLabDecoder
 from empanada.models.heads import PanopticDeepLabHead
@@ -18,52 +17,6 @@ __all__ = [
     'PanopticDeepLabBC'
 ]
 
-def _make3d(module):
-    r"""Helper function to convert 2D models to 3D"""
-    reassign = {}
-    for name, mod in module.named_children():
-        _make3d(mod)
-        
-        if type(mod) == nn.Conv2d:
-            ks = tuple(3 * [mod.kernel_size[0]])
-            st = tuple(3 * [mod.stride[0]])
-            pad = tuple(3 * [mod.padding[0]])
-            dilation = tuple(3 * [mod.dilation[0]])
-            groups = mod.groups
-            bias = mod.bias is not None
-            
-            reassign[name] = nn.Conv3d(
-                mod.in_channels, mod.out_channels, ks, stride=st, 
-                padding=pad, dilation=dilation, groups=groups, bias=bias
-            )
-            
-        elif type(mod) == nn.ConvTranspose2d:
-            ks = tuple(3 * [mod.kernel_size[0]])
-            st = tuple(3 * [mod.stride[0]])
-            pad = tuple(3 * [mod.padding[0]])
-            dilation = tuple(3 * [mod.dilation[0]])
-            groups = mod.groups
-            bias = mod.bias is not None
-            
-            reassign[name] = nn.ConvTranspose3d(
-                mod.in_channels, mod.out_channels, ks, stride=st, 
-                padding=pad, dilation=dilation, groups=groups, bias=bias
-            )
-            
-        elif type(mod) == nn.BatchNorm2d:
-            reassign[name] = nn.BatchNorm3d(mod.num_features)
-            
-        elif type(mod) == nn.MaxPool2d:
-            reassign[name] = nn.MaxPool3d(mod.kernel_size, stride=mod.stride, padding=mod.padding)
-            
-        elif type(mod) == nn.AdaptiveAvgPool2d:
-            reassign[name] = nn.AdaptiveAvgPool3d(1)
-            
-        elif type(mod) == Interpolate2d:
-            reassign[name] = Interpolate2d(mod.scale_factor, 'trilinear', mod.align_corners)
-        
-    for key, value in reassign.items():
-        module._modules[key] = value
     
 class PanopticDeepLab(nn.Module):
     def __init__(
@@ -135,7 +88,7 @@ class PanopticDeepLab(nn.Module):
         else:
             f = 16
         
-        self.interpolate = Interpolate2d(f, mode='bilinear', align_corners=True)
+        self.interpolate = Interpolate(f, mode='bilinear', align_corners=True)
         
         self.dimension = dimension
         if self.dimension == 3:
@@ -249,7 +202,7 @@ class PanopticDeepLabBC(PanopticDeepLab):
         )
         
         self.boundary_pr = PointRendSemSegHead(
-            self.decoder_channels, self.num_classes, num_fc,
+            self.decoder_channels, 1, num_fc,
             train_num_points, oversample_ratio, 
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points

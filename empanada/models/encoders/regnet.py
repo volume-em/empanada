@@ -64,7 +64,7 @@ class Bottleneck(nn.Module):
         w_b = int(round(w_out * bottle_ratio))
         self.a = conv_bn_act(w_in, w_b, 1)
         self.b = conv_bn_act(w_b, w_b, 3, stride=stride, groups=groups)
-        self.se = SqueezeExcite(w_b) if use_se else None
+        self.se = SqueezeExcite2d(w_b) if use_se else None
         self.c = conv_bn_act(w_b, w_out, 1, activation=None)
         self.c[1].final_bn = True # layer 1 is the BN layer
 

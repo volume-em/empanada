@@ -4,7 +4,6 @@ https://github.com/facebookresearch/detectron2/tree/main/projects/PointRend/poin
 
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -232,7 +231,7 @@ class PointRendSemSegHead(nn.Module):
         self.subdivision_num_points = subdivision_num_points
         
         self.point_head = StandardPointHead(nin, num_classes, nin, num_fc, coarse_pred_each_layer=True)
-        self.interpolate = Interpolate2d(2, mode='bilinear', align_corners=False)
+        self.interpolate = Interpolate(2, mode='bilinear', align_corners=False)
 
     def forward(self, coarse_sem_seg_logits, features):
         dim = 2 if features.ndim == 4 else 3

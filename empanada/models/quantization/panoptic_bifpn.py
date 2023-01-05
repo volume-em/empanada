@@ -39,7 +39,7 @@ class QuantizablePanopticBiFPN(PanopticBiFPN):
         
         _replace_relu(self)
         
-        self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+        self.interpolate = Interpolate(4, mode='bilinear', align_corners=True)
 
         if quantize:
             self.quant = QuantStub()
@@ -155,7 +155,7 @@ class QuantizablePanopticBiFPNPR(QuantizablePanopticBiFPN):
         
         # only passes features from
         # 1/8 -> 1/32 resolutions (i.e. P3-P5)
-        semantic_x,  instance_x  = self._forward_decoders(pyramid_features[2:], p2_features)
+        semantic_x, instance_x  = self._forward_decoders(pyramid_features[2:], p2_features)
 
         output = self._apply_heads(semantic_x, instance_x, render_steps, interpolate_ins)
         
