@@ -3,11 +3,10 @@ Copied with modification from:
 https://github.com/pytorch/vision/blob/master/torchvision/models/quantization/resnet.py.
 """
 
-import torch
 import torch.nn as nn
 from torch.quantization import fuse_modules
 from empanada.models.encoders.regnet import (
-    Stem, Bottleneck, BottleneckBlock, RegNet, RegNetConfig
+    Stem, BottleneckBlock, RegNet, RegNetConfig
 )
 
 __all__ = [
