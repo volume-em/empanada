@@ -417,7 +417,7 @@ class BCEngine(_Engine):
         return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
 class BCEngineStack(_MedianQueue, BCEngine):
-    def __init__(self, model, median_kernel_size=3, **kwargs):
+    def __init__(self, model, median_kernel_size=3, padding_factor=16, **kwargs):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
         self.padding_factor = padding_factor
 
