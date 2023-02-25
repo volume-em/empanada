@@ -17,16 +17,12 @@ from torch.cuda.amp import autocast, GradScaler
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from skimage import io
-from skimage import measure
-from matplotlib import pyplot as plt
 
-from empanada.inference.engines import InferenceEngine
 from empanada import losses
 from empanada import data
 from empanada import metrics
 from empanada import models
-from empanada.config_loaders import load_config_with_base
+from empanada.config_loaders import load_config
 from empanada.data.utils.sampler import DistributedWeightedSampler
 from empanada.data.utils.transforms import FactorPad
 
@@ -62,7 +58,7 @@ def main():
     args = parse_args()
 
     # read the config file
-    config = load_config_with_base(args.config)
+    config = load_config(args.config)
 
     config['config_file'] = args.config
     config['config_name'] = os.path.basename(args.config).split('.yaml')[0]
@@ -156,7 +152,6 @@ def main_worker(gpu, ngpus_per_node, config):
     for pname, param in model.named_parameters():
         if 'encoder' in pname:
             param.requires_grad = False
-
     # freeze encoder layers
     if finetune_layer == 'none':
         # leave all encoder layers frozen
@@ -359,9 +354,9 @@ def main_worker(gpu, ngpus_per_node, config):
         gpu_rank = config['TRAIN']['rank'] % ngpus_per_node
 
         # evaluate on validation set, does not support multiGPU
-        #if eval_loader is not None and (epoch + 1) % config['EVAL']['epochs_per_eval'] == 0:
-        #    if not is_distributed or (is_distributed and gpu_rank == 0):
-        #        validate(eval_loader, model, criterion, epoch, config)
+        if eval_loader is not None and (epoch + 1) % config['EVAL']['epochs_per_eval'] == 0:
+            if not is_distributed or (is_distributed and gpu_rank == 0):
+                validate(eval_loader, model, criterion, epoch, config)
 
         save_now = (epoch + 1) % config['TRAIN']['save_freq'] == 0
         if save_now and not is_distributed or (is_distributed and gpu_rank == 0):
@@ -497,7 +492,7 @@ def train(
         reg_name = metric_params['name']
         metric_name = metric_params['metric']
         metric_params = {k: v for k,v in metric_params.items() if k not in ['name', 'metric']}
-        metric_dict[reg_name] = metrics.__dict__[metric_name](metrics.EMAMeter(), **metric_params) 
+        metric_dict[reg_name] = metrics.__dict__[metric_name](metrics.EMAMeter, **metric_params) 
 
     meters = metrics.ComposeMetrics(metric_dict, class_names)
 
@@ -570,25 +565,27 @@ def validate(
 ):
     # metric tracking
     class_names = config['DATASET']['class_names']
-    metric_dict = {name: metrics.__dict__[name](metrics.AverageMeter(), **config['EVAL']['metric_params']) 
-                   for name in config['EVAL']['metrics']}
+    metric_dict = {}
+    for metric_params in config['TRAIN']['metrics']:
+        reg_name = metric_params['name']
+        metric_name = metric_params['metric']
+        metric_params = {k: v for k,v in metric_params.items() if k not in ['name', 'metric']}
+        metric_dict[reg_name] = metrics.__dict__[metric_name](metrics.AverageMeter, **metric_params) 
+
     meters = metrics.ComposeMetrics(metric_dict, class_names)
+    
+    # switch to eval mode
+    model.eval()
     
     # validation tracking
     batch_time = ProgressAverageMeter('Time', ':6.3f')
     losses = ProgressAverageMeter('Total_Loss', ':.4e')
-    ce_losses = ProgressAverageMeter('CE_Loss', ':.4e')
-    mse_losses = ProgressAverageMeter('MSE_Loss', ':.4e')
-    l1_losses = ProgressAverageMeter('L1_Loss', ':.4e')
     
     progress = ProgressMeter(
         len(eval_loader),
-        [batch_time, losses, ce_losses, mse_losses, l1_losses],
+        [batch_time, losses],
         prefix='Validation: '
     )
-    
-    # create the Inference Engine
-    engine = InferenceEngine(model, **config['EVAL']['engine_params'])
     
     for i, batch in enumerate(eval_loader):
         end = time.time()
@@ -603,20 +600,12 @@ def validate(
             
         # compute panoptic segmentations
         # from prediction and ground truth
-        output = engine.infer(images)
-        semantic = engine._harden_seg(output['sem'])
-        output['pan_seg'] = engine.postprocess(
-            semantic, output['ctr_hmp'], output['offsets']
-        )
-        target['pan_seg'] = engine.postprocess(
-            target['sem'].unsqueeze(1), target['ctr_hmp'], target['offsets']
-        )
-        
+        output = model(images)
+        output['sem'] = torch.sigmoid(output['sem_logits']) > 0.5
+        output['cnt'] = torch.sigmoid(output['cnt_logits']) > 0.5
+ 
         loss, aux_loss = criterion(output, target)
         losses.update(loss.item())
-        ce_losses.update(aux_loss['ce'])
-        mse_losses.update(aux_loss['mse'])
-        l1_losses.update(aux_loss['l1'])
         
         # compute metrics
         with torch.no_grad():
@@ -626,25 +615,6 @@ def validate(
             
         if i % config['TRAIN']['print_freq'] == 0:
             progress.display(i)
-            
-        if i in config['EVAL']['eval_track_indices'] and (epoch + 1) % config['EVAL']['eval_track_freq'] == 0:
-            impath = batch['fname'][0]
-            fname = '.'.join(os.path.basename(impath).split('.')[:-1])
-            image = io.imread(impath)
-            
-            # gt and prediction
-            h, w = image.shape
-            gt = measure.label(target['pan_seg'].squeeze().cpu().numpy()[:h, :w])
-            pred = measure.label(output['pan_seg'].squeeze().cpu().numpy()[:h, :w])
-            
-            artifact_path = 'mlruns/' + mlflow.get_artifact_uri().split('/mlruns/')[-1]
-            
-            f, ax = plt.subplots(1, 3, figsize=(12, 4))
-            ax[0].imshow(image, cmap='gray')
-            ax[1].imshow(gt, cmap='plasma')
-            ax[2].imshow(pred, cmap='plasma')
-            plt.savefig(os.path.join(artifact_path, f'{fname}_epoch{epoch}.png'))
-            plt.clf()
             
     # end of epoch print evaluation metrics
     print('\n')

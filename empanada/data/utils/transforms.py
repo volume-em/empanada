@@ -38,7 +38,7 @@ try:
     # only necessary for model training,
     # inference-only empanada doesn't need it
     import albumentations as A
-
+            
     class FactorPad(A.Lambda):
         def __init__(self, factor=128):
             super().__init__(image=self.pad_func, mask=self.pad_func)
@@ -46,8 +46,44 @@ try:
 
         def pad_func(self, x, **kwargs):
             return factor_pad(x, factor=self.factor)
-                
-        __all__.append('FactorPad')
-                            
+    
+    __all__.append('FactorPad')
+    
+except ImportError:
+    pass
+
+try:
+    import random
+    from volumentations.augmentations import functional as F
+    from volumentations.core.transforms_interface import ImageOnlyTransform, to_tuple
+    
+    class RandomBrightnessContrast3d(ImageOnlyTransform):
+        def __init__(
+            self,
+            brightness_limit=0.2,
+            contrast_limit=0.2,
+            brightness_by_max=True,
+            always_apply=False,
+            p=0.5,
+        ):
+            super(RandomBrightnessContrast3d, self).__init__(always_apply, p)
+            self.brightness_limit = to_tuple(brightness_limit)
+            self.contrast_limit = to_tuple(contrast_limit)
+            self.brightness_by_max = brightness_by_max
+
+        def apply(self, img, alpha=1.0, beta=0.0, **params):
+            return F.brightness_contrast_adjust(img.astype(np.uint8), alpha, beta, self.brightness_by_max).astype(np.float32)
+
+        def get_params(self, **data):
+            return {
+                "alpha": 1.0 + random.uniform(self.contrast_limit[0], self.contrast_limit[1]),
+                "beta": 0.0 + random.uniform(self.brightness_limit[0], self.brightness_limit[1]),
+            }
+
+        def get_transform_init_args_names(self):
+            return ("brightness_limit", "contrast_limit", "brightness_by_max")
+        
+    __all__.append('RandomBrightnessContrast3d')
+            
 except ImportError:
     pass

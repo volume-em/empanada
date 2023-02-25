@@ -4,6 +4,7 @@ Confidence weighting of loss that's efficient.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from empanada.models.point_rend import point_sample
 
 __all__ = [
@@ -98,6 +99,110 @@ class PointRendLoss(nn.Module):
 
         return point_losses
 
+class BootstrapPointRendLoss(nn.Module):
+    r"""Standard (binary) cross-entropy between logits at
+    points sampled by the point rend module.
+    """
+    def __init__(self, beta=0.8, mode='hard'):
+        super(BootstrapPointRendLoss, self).__init__()
+        self.bce = nn.BCEWithLogitsLoss(reduction='mean')
+        self.beta = beta
+        self.mode = mode
+
+    def forward(self, point_logits, point_coords, labels):
+        # sample the labels at the given coordinates
+        point_labels = point_sample(
+            labels.unsqueeze(1).float(), point_coords,
+            mode="nearest", align_corners=False
+        )
+
+        point_probas = torch.sigmoid(point_logits)
+        if self.mode == 'soft':
+            boot_labels = (self.beta * point_labels) + (1.0 - self.beta) * point_probas
+        else:
+            boot_labels = (self.beta * point_labels) + (1.0 - self.beta) * (point_probas > 0.5).float()
+        
+        point_losses = self.bce(point_logits, boot_labels)
+
+        return point_losses
+    
+class BootstrapDiceLoss(nn.Module):
+    """
+    Calculates the bootstrapped dice loss between model output logits and
+    a noisy ground truth labelmap. The loss targets are modified to be
+    a linear combination of the noisy ground truth the model's own prediction
+    confidence. They are calculated as:
+    
+    boot_target = (beta * noisy_ground_truth) + (1.0 - beta) * model_predictions [1]
+    
+    References: 
+    [1] https://arxiv.org/abs/1412.6596
+    
+    Arguments:
+    ----------
+    beta: Float, in the range (0, 1). Beta = 1 is equivalent to regular dice loss. 
+    Controls the level of mixing between the noisy ground truth and the model's own 
+    predictions. Default 0.8.
+    
+    eps: Float. A small float value used to prevent division by zero. Default, 1e-7.
+    
+    mode: Choice of ['hard', 'soft']. In the soft mode, model predictions are 
+    probabilities in the range [0, 1]. In the hard mode, model predictions are 
+    "hardened" such that:
+    
+        model_predictions = 1 when probability > 0.5
+        model_predictions = 0 when probability <= 0.5
+    
+    Default is 'hard'.
+    
+    Example Usage:
+    --------------
+    
+    model = Model()
+    criterion = BootstrapDiceLoss(beta=0.8, mode='hard')
+    output = model(input)
+    loss = criterion(output, noisy_ground_truth)
+    loss.backward()
+    
+    """
+    def __init__(self, beta=0.8, eps=1e-7, mode='hard'):
+        super(BootstrapDiceLoss, self).__init__()
+        self.beta = beta
+        self.eps = eps
+        self.mode = mode
+        
+    def forward(self, output, target):
+        if target.ndim == output.ndim - 1:
+            target = target.unsqueeze(1)
+            
+        n_classes = output.shape[1]
+        n_classes = 2 if n_classes == 1 else n_classes
+        empty_dims = (1,) * (target.ndim - 2)
+        
+        k = torch.arange(0, n_classes).view(1, n_classes, *empty_dims).to(target.device)
+        target = (target == k)
+            
+        if n_classes == 2:
+            pos_prob = torch.sigmoid(output)
+            neg_prob = 1 - pos_prob
+            probas = torch.cat([neg_prob, pos_prob], dim=1)
+        else:
+            probas = F.softmax(output, dim=1)
+        
+        target = target.type(output.dtype)
+                
+        if self.mode == 'soft':
+            boot_target = (self.beta * target) + (1.0 - self.beta) * probas
+        else:
+            boot_target = (self.beta * target) + (1.0 - self.beta) * (probas > 0.5).float()
+        
+        dims = (0,) + tuple(range(2, boot_target.ndimension()))
+        intersection = torch.sum(probas * boot_target, dims)
+        cardinality = torch.sum(probas + boot_target, dims)
+        
+        dice_loss = ((2. * intersection) / (cardinality + self.eps)).mean()
+        return 1 - dice_loss
+
 class PanopticLoss(nn.Module):
     r"""Defines the overall panoptic loss function which combines
     semantic segmentation, instance centers and offsets.
@@ -183,6 +288,50 @@ class BCLoss(nn.Module):
 
         aux_loss = {'sem_ce': sem_ce.item(), 'cnt_ce': cnt_ce.item()}
         total_loss = sem_ce + cnt_ce
+
+        # add the point rend losses from both
+        if 'sem_points' in output:
+            sem_pr_ce = self.pr_loss(output['sem_points'], output['sem_point_coords'], target['sem'])
+            cnt_pr_ce = self.pr_loss(output['cnt_points'], output['cnt_point_coords'], target['cnt'])
+
+            aux_loss['sem_pr_ce'] = sem_pr_ce.item()
+            aux_loss['cnt_pr_ce'] = cnt_pr_ce.item()
+            total_loss += self.pr_weight * (sem_pr_ce + cnt_pr_ce)
+
+        aux_loss['total_loss'] = total_loss.item()
+        return total_loss, aux_loss
+
+class BootstrapBCLoss(nn.Module):
+    r"""Defines the overall loss for a boundary contour prediction
+    model.
+
+    Args:
+        pr_weight: Float, weight to apply to the point rend semantic
+            segmentation loss. Only applies if using a Point Rend enabled model.
+
+        top_k_percent: Float, fraction of largest semantic segmentation
+            loss values to consider in BootstrapCE.
+
+    """
+    def __init__(
+        self,
+        pr_weight=1,
+        beta=0.8,
+        eps=1e-7,
+        mode='hard'
+    ):
+        super(BootstrapBCLoss, self).__init__()
+        self.dice_loss = BootstrapDiceLoss(beta=beta, eps=eps, mode=mode)
+        self.pr_loss = BootstrapPointRendLoss(beta=beta, mode=mode)
+        self.pr_weight = pr_weight
+
+    def forward(self, output, target):
+        # mask losses
+        sem_dice = self.dice_loss(output['sem_logits'], target['sem'])
+        cnt_dice = self.dice_loss(output['cnt_logits'], target['cnt'])
+
+        aux_loss = {'sem_dice': sem_dice.item(), 'cnt_dice': cnt_dice.item()}
+        total_loss = sem_dice + cnt_dice
 
         # add the point rend losses from both
         if 'sem_points' in output:

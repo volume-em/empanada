@@ -10,13 +10,12 @@ from empanada.inference.postprocess import (
 )
 from collections import deque
 
-
 __all__ = [
     'PanopticDeepLabEngine',
     'PanopticDeepLabEngine3d',
     'PanopticDeepLabRenderEngine',
     'PanopticDeepLabRenderEngine3d',
-    'BCEngine', 'BCEngine3d',
+    'BCEngine', 'BCEngineStack',
 ]
 
 @torch.no_grad()
@@ -246,8 +245,10 @@ class PanopticDeepLabRenderEngine(PanopticDeepLabEngine):
         self.coarse_boundaries = coarse_boundaries
 
     @torch.no_grad()
-    def infer(self, image, render_steps=2):            
+    def infer(self, image, render_steps=2):
+        #render_steps = 0
         model_out = self.model(image, render_steps, interpolate_ins=not self.coarse_boundaries)
+        #model_out['sem_logits'] = F.interpolate(model_out['sem_logits'], scale_factor=4, mode='bilinear', align_corners=True)
         
         # notice that sem is NOT sem_logits
         model_out['sem'] = logits_to_prob(model_out['sem_logits'])
@@ -415,14 +416,8 @@ class BCEngine(_Engine):
         assert image.ndim == 4 and image.size(0) == 1
         return self.infer(self.to_model_device(image))['bc'] # (1, 2, H, W)
 
-class BCEngine3d(_MedianQueue, BCEngine):
-    def __init__(
-        self, 
-        model, 
-        median_kernel_size=3, 
-        padding_factor=16, 
-        **kwargs
-    ):
+class BCEngineStack(_MedianQueue, BCEngine):
+    def __init__(self, model, median_kernel_size=3, padding_factor=16, **kwargs):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
         self.padding_factor = padding_factor
 
@@ -438,10 +433,6 @@ class BCEngine3d(_MedianQueue, BCEngine):
         cnt = torch.sigmoid(cnt_logits)
 
         return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
-    
-    def end(self):
-        # list of remaining segs (1, 2, H, W)
-        return list(self.median_queue)[self.mid_idx + 1:]
     
     def end(self, upsampling=1):
         # any items past self.mid_idx remaining

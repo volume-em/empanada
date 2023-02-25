@@ -1,10 +1,10 @@
-import torch
 import torch.nn as nn
 from empanada.models.decoders import PanopticDeepLabDecoder
 from empanada.models.heads import PanopticDeepLabHead
 from empanada.models.point_rend import PointRendSemSegHead
 from empanada.models.blocks import *
 from empanada.models import encoders
+from empanada.models.utils import _make3d
 
 backbones = sorted(name for name in encoders.__dict__
     if not name.startswith("__")
@@ -16,6 +16,7 @@ __all__ = [
     'PanopticDeepLabPR',
     'PanopticDeepLabBC'
 ]
+
     
 class PanopticDeepLab(nn.Module):
     def __init__(
@@ -31,6 +32,7 @@ class PanopticDeepLab(nn.Module):
         aspp_dropout=0.1,
         ins_decoder=False,
         ins_ratio=0.5,
+        dimension=2,
         **kwargs
     ):
         super(PanopticDeepLab, self).__init__()
@@ -38,7 +40,6 @@ class PanopticDeepLab(nn.Module):
         assert (encoder in backbones), \
         f'Invalid encoder name {encoder}, choices are {backbones}'
         assert stage4_stride in [16, 32]
-        assert min(low_level_stages) > 0
         
         self.decoder_channels = decoder_channels
         self.num_classes = num_classes
@@ -79,7 +80,19 @@ class PanopticDeepLab(nn.Module):
         self.ins_center = PanopticDeepLabHead(decoder_channels, 1)
         self.ins_xy = PanopticDeepLabHead(decoder_channels, 2)
         
-        self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+        # get the interpolation factor from low_level stages
+        if 1 in low_level_stages:
+            f = 4
+        elif 2 in low_level_stages:
+            f = 8
+        else:
+            f = 16
+        
+        self.interpolate = Interpolate(f, mode='bilinear', align_corners=True)
+        
+        self.dimension = dimension
+        if self.dimension == 3:
+            _make3d(self)
             
     def _encode_decode(self, x):
         pyramid_features = self.encoder(x)
@@ -93,7 +106,7 @@ class PanopticDeepLab(nn.Module):
             # this shouldn't make a copy!
             instance_x = semantic_x
             
-        return pyramid_features, semantic_x, instance_x
+        return semantic_x, instance_x
     
     def _apply_heads(self, semantic_x, instance_x):
         heads_out = {}
@@ -101,7 +114,7 @@ class PanopticDeepLab(nn.Module):
         ctr_hmp = self.ins_center(instance_x)
         offsets = self.ins_xy(instance_x)
         
-        # return at original image resolution (4x)
+        # return at original image resolution
         heads_out['sem_logits'] = self.interpolate(sem)
         heads_out['ctr_hmp'] = self.interpolate(ctr_hmp)
         heads_out['offsets'] = self.interpolate(offsets)
@@ -109,7 +122,7 @@ class PanopticDeepLab(nn.Module):
         return heads_out
             
     def forward(self, x):
-        pyramid_features, semantic_x, instance_x = self._encode_decode(x)
+        semantic_x, instance_x = self._encode_decode(x)
         output = self._apply_heads(semantic_x, instance_x)
         
         return output
@@ -135,6 +148,9 @@ class PanopticDeepLabPR(PanopticDeepLab):
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points
         )
+
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
         
     def _apply_heads(self, semantic_x, instance_x):
         heads_out = {}
@@ -189,11 +205,16 @@ class PanopticDeepLabBC(PanopticDeepLab):
         )
         
         self.boundary_pr = PointRendSemSegHead(
-            self.decoder_channels, self.num_classes, num_fc,
+            self.decoder_channels, 1, num_fc,
             train_num_points, oversample_ratio, 
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points
         )
+        
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
+            _make3d(self.boundary_pr)
+            _make3d(self.boundary_head)
         
     def _apply_heads(self, semantic_x, instance_x):
         heads_out = {}
@@ -218,4 +239,6 @@ class PanopticDeepLabBC(PanopticDeepLab):
             heads_out['cnt_logits'] = cnt_pr_out['sem_seg_logits']
         
         return heads_out
+    
+
         

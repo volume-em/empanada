@@ -73,7 +73,7 @@ class PanopticDeepLabDecoder(nn.Module):
         for i, (proj, fuse) in enumerate(zip(self.project, self.fuse)):
             l = pyramid_features[self.low_level_stages[i]]
             l = proj(l)
-            x = F.interpolate(x, size=l.size()[2:], mode='bilinear', align_corners=True)
+            x = F.interpolate(x, size=l.size()[2:], mode='bilinear' if l.ndim == 4 else 'trilinear', align_corners=True)
             x = torch.cat((x, l), dim=1)
             x = fuse(x)
 

@@ -64,7 +64,7 @@ class Bottleneck(nn.Module):
         w_b = int(round(w_out * bottle_ratio))
         self.a = conv_bn_act(w_in, w_b, 1)
         self.b = conv_bn_act(w_b, w_b, 3, stride=stride, groups=groups)
-        self.se = SqueezeExcite(w_b) if use_se else None
+        self.se = SqueezeExcite2d(w_b) if use_se else None
         self.c = conv_bn_act(w_b, w_out, 1, activation=None)
         self.c[1].final_bn = True # layer 1 is the BN layer
 
@@ -140,7 +140,7 @@ class RegNet(nn.Module):
         assert output_stride in [16, 32]
         if output_stride == 16:
             cfg.strides[-1] = 1
-
+            
         # make the stages with correct widths and depths
         self.cfg = cfg
         groups = cfg.groups
@@ -264,28 +264,28 @@ def regnetx_6p4gf(**kwargs):
         'depth': 17, 'w_0': 184, 'w_a': 60.83,
         'w_m': 2.07, 'group_w': 56
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_200mf(**kwargs):
     params = {
         'depth': 13, 'w_0': 24, 'w_a': 36.44,
         'w_m': 2.49, 'group_w': 8
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_800mf(**kwargs):
     params = {
         'depth': 14, 'w_0': 56, 'w_a': 38.84,
         'w_m': 2.4, 'group_w': 16
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_3p2gf(**kwargs):
     params = {
         'depth': 21, 'w_0': 80, 'w_a': 42.63,
         'w_m': 2.66, 'group_w': 24
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_4gf(**kwargs):
     params = {
@@ -299,18 +299,18 @@ def regnety_6p4gf(**kwargs):
         'depth': 25, 'w_0': 112, 'w_a': 33.22,
         'w_m': 2.27, 'group_w': 72, 'use_se': True
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_8gf(**kwargs):
     params = {
         'depth': 17, 'w_0': 192, 'w_a': 76.82,
         'w_m': 2.19, 'group_w': 56, 'use_se': True
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)
 
 def regnety_16gf(**kwargs):
     params = {
         'depth': 18, 'w_0': 200, 'w_a': 106.23,
         'w_m': 2.48, 'group_w': 112, 'use_se': True
     }
-    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock)
+    return RegNet(RegNetConfig(**params, **kwargs), block=BottleneckBlock, **kwargs)

@@ -3,7 +3,7 @@ import numpy as np
 import numba
 from scipy.sparse import csr_matrix
 
-def take(array, indices, axis=0):
+def take(array, indices, box=None, axis=0):
     r"""Take indices from array along an axis
 
     Args:
@@ -15,12 +15,25 @@ def take(array, indices, axis=0):
         output: np.ndarray
 
     """
-    indices = tuple([
-        slice(None) if n != axis else indices
-        for n in range(array.ndim)
-    ])
-
-    return array[indices]
+    if box is not None:
+        slices = []
+        c = 0
+        for n in range(array.ndim):
+            if n != axis:
+                s, e = box[c], box[c+array.ndim-1]
+                slices.append(slice(s, e))
+                c += 1
+            else:
+                slices.append(indices)
+                
+        slices = tuple(slices)
+    else:            
+        slices = tuple([
+            slice(None) if n != axis else indices
+            for n in range(array.ndim)
+        ])
+        
+    return array[slices]
 
 def put(array, indices, value, axis=0):
     r"""Put values at indices, inplace, along an axis.
@@ -124,23 +137,6 @@ def merge_boxes(box1, box2):
 
     return tuple(merged_box)
 
-def box_iou(boxes1, boxes2=None, return_intersection=False):
-    # do pairwise box iou if no boxes2
-    if boxes2 is None:
-        boxes2 = boxes1
-
-    intersect = box_intersection(boxes1, boxes2)
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
-
-    # union is a matrix of same size as intersect
-    union = area1[:, None] + area2[None, :] - intersect
-    iou = intersect / union
-    if return_intersection:
-        return iou, intersect
-    else:
-        return iou
-    
 @numba.jit(nopython=True)
 def _box_iou(boxes1, boxes2):
     ndim = boxes1.shape[1] // 2

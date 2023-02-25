@@ -7,6 +7,7 @@ from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHe
 from empanada.models.quantization.decoders import QuantizablePanopticDeepLabDecoder
 from empanada.models.heads import PanopticDeepLabHead
 from empanada.models.blocks import *
+from empanada.models.utils import _make3d
 from typing import List, Dict
 
 backbones = sorted(name for name in encoders.__dict__
@@ -16,7 +17,8 @@ backbones = sorted(name for name in encoders.__dict__
 
 __all__ = [
     'QuantizablePanopticDeepLab',
-    'QuantizablePanopticDeepLabPR'
+    'QuantizablePanopticDeepLabPR',
+    'QuantizablePanopticDeepLabBC'
 ]
 
 def _replace_relu(module):
@@ -45,6 +47,7 @@ class QuantizablePanopticDeepLab(nn.Module):
         aspp_channels=None,
         ins_decoder=False,
         ins_ratio=0.5,
+        dimension=2,
         quantize=False,
         **kwargs
     ):
@@ -53,7 +56,7 @@ class QuantizablePanopticDeepLab(nn.Module):
         assert (encoder in backbones), \
         f'Invalid encoder name {encoder}, choices are {backbones}'
         assert stage4_stride in [16, 32]
-        assert min(low_level_stages) > 0
+        #assert min(low_level_stages) > 0
         
         self.decoder_channels = decoder_channels
         self.num_classes = num_classes
@@ -86,7 +89,15 @@ class QuantizablePanopticDeepLab(nn.Module):
         self.ins_center = PanopticDeepLabHead(decoder_channels, 1)
         self.ins_xy = PanopticDeepLabHead(decoder_channels, 2)
         
-        self.interpolate = Interpolate2d(4, mode='bilinear', align_corners=True)
+        # get the interpolation factor from low_level stages
+        if 1 in low_level_stages:
+            f = 4
+        elif 2 in low_level_stages:
+            f = 8
+        else:
+            f = 16
+        
+        self.interpolate = Interpolate(f, mode='bilinear', align_corners=True)
             
         _replace_relu(self)
         
@@ -96,10 +107,25 @@ class QuantizablePanopticDeepLab(nn.Module):
         else:
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
+
+        if dimension == 3:
+            _make3d(self)
     
     def fix_qconfig(self, observer='fbgemm'):
         self.qconfig = torch.quantization.get_default_qconfig(observer)
 
+    def prepare_quantization(self):
+        torch.quantization.prepare(self.encoder, inplace=True)
+        torch.quantization.prepare(self.semantic_decoder, inplace=True)
+        if self.instance_decoder is not None:
+            torch.quantization.prepare(self.instance_decoder, inplace=True)
+            
+        torch.quantization.prepare(self.semantic_head, inplace=True)
+        torch.quantization.prepare(self.ins_center, inplace=True)
+        
+        torch.quantization.prepare(self.quant, inplace=True)
+        torch.quantization.prepare(self.dequant, inplace=True)
+        
     def _encode_decode(self, x):
         pyramid_features: List[torch.Tensor] = self.encoder(x)
         
@@ -166,6 +192,10 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points, quantize=kwargs['quantize']
         )
+
+        self.dimension = kwargs['dimension']
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
         
     def fix_qconfig(self, observer='fbgemm'):
         self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
@@ -253,5 +283,143 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
         self.encoder.fuse_model()
         self.semantic_decoder.fuse_model()
         self.semantic_pr.fuse_model()
+        if self.instance_decoder is not None:
+            self.instance_decoder.fuse_model()
+            
+class QuantizablePanopticDeepLabBC(QuantizablePanopticDeepLab):
+    def __init__(
+        self,
+        num_fc=3,
+        train_num_points=1024,
+        oversample_ratio=3,
+        importance_sample_ratio=0.75,
+        subdivision_steps=2,
+        subdivision_num_points=8192,
+        **kwargs
+    ):
+        super(QuantizablePanopticDeepLabBC, self).__init__(**kwargs)
+        
+        # remove instance center and regression layers
+        del self.ins_center
+        del self.ins_xy
+        
+        # create the boundary head
+        self.boundary_head = PanopticDeepLabHead(self.decoder_channels, 1)
+        
+        self.semantic_pr = QuantizablePointRendSemSegHead(
+            self.decoder_channels, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points, quantize=kwargs['quantize']
+        )
+        
+        self.boundary_pr = QuantizablePointRendSemSegHead(
+            self.decoder_channels, self.num_classes, num_fc,
+            train_num_points, oversample_ratio, 
+            importance_sample_ratio, subdivision_steps,
+            subdivision_num_points, quantize=kwargs['quantize']
+        )
+        
+        self.dimension = kwargs['dimension']
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
+            _make3d(self.boundary_pr)
+            _make3d(self.boundary_head)
+        
+    def fix_qconfig(self, observer='fbgemm'):
+        self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.semantic_decoder.qconfig = torch.quantization.get_default_qconfig(observer)
+        if self.instance_decoder is not None:
+            self.instance_decoder.qconfig = torch.quantization.get_default_qconfig(observer)
+            
+        self.semantic_head.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.boundary_head.qconfig = torch.quantization.get_default_qconfig(observer)
+        
+        self.quant.qconfig = torch.quantization.get_default_qconfig(observer)
+        self.dequant.qconfig = torch.quantization.get_default_qconfig(observer)
+        
+    def prepare_quantization(self):
+        torch.quantization.prepare(self.encoder, inplace=True)
+        torch.quantization.prepare(self.semantic_decoder, inplace=True)
+        if self.instance_decoder is not None:
+            torch.quantization.prepare(self.instance_decoder, inplace=True)
+            
+        torch.quantization.prepare(self.semantic_head, inplace=True)
+        torch.quantization.prepare(self.boundary_head, inplace=True)
+        
+        torch.quantization.prepare(self.quant, inplace=True)
+        torch.quantization.prepare(self.dequant, inplace=True)
+        
+    def _apply_heads(
+        self, 
+        semantic_x, 
+        instance_x, 
+        render_steps: int,
+        interpolate_ins: bool
+    ):
+        heads_out = {}
+        
+        sem = self.semantic_head(semantic_x)
+        cnt = self.boundary_head(instance_x)
+        
+        if self.training:
+            sem_pr_out: Dict[str, torch.Tensor] = self.semantic_pr(sem, semantic_x)
+            cnt_pr_out: Dict[str, torch.Tensor] = self.boundary_pr(cnt, instance_x)
+            
+            # interpolate to original resolution (4x)
+            heads_out['sem_logits'] = self.interpolate(sem_pr_out['sem_seg_logits'])
+            heads_out['sem_points'] = sem_pr_out['point_logits']
+            heads_out['sem_point_coords'] = sem_pr_out['point_coords']
+            
+            heads_out['cnt_logits'] = self.interpolate(cnt_pr_out['sem_seg_logits'])
+            heads_out['cnt_points'] = cnt_pr_out['point_logits']
+            heads_out['cnt_point_coords'] = cnt_pr_out['point_coords']
+            
+            # dequant all outputs
+            heads_out = {k: self.dequant(v) for k,v in heads_out.items()}
+        else:
+            # update the number of subdivisions
+            self.semantic_pr.subdivision_steps = render_steps
+            self.boundary_pr.subdivision_steps = render_steps
+            
+            sem = self.dequant(sem)
+            semantic_x = self.dequant(semantic_x)
+            sem_pr_out: Dict[str, torch.Tensor] = self.semantic_pr(
+                sem, semantic_x
+            )
+            heads_out['sem_logits'] = sem_pr_out['sem_seg_logits']
+            
+            cnt = self.dequant(cnt)
+            instance_x = self.dequant(instance_x)
+            cnt_pr_out: Dict[str, torch.Tensor] = self.boundary_pr(
+                cnt, instance_x
+            )
+            heads_out['cnt_logits'] = cnt_pr_out['sem_seg_logits']
+        
+        return heads_out
+        
+    def forward(self, x, render_steps: int=2, interpolate_ins: bool=True):
+        if self.training:
+            assert isinstance(self.quant, nn.Identity), \
+            "Quantized training not supported!"
+        
+        x = self.quant(x)
+            
+        pyramid_features, semantic_x, instance_x = self._encode_decode(x)
+        output: Dict[str, torch.Tensor] = self._apply_heads(
+            semantic_x, instance_x, render_steps, interpolate_ins
+        )
+        
+        output = torch.cat(
+            [output['sem_logits'], output['cnt_logits']], dim=1
+        )
+        
+        return output
+    
+    def fuse_model(self):
+        self.encoder.fuse_model()
+        self.semantic_decoder.fuse_model()
+        self.semantic_pr.fuse_model()
+        self.boundary_pr.fuse_model()
         if self.instance_decoder is not None:
             self.instance_decoder.fuse_model()

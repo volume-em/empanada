@@ -307,7 +307,7 @@ class ComposeMetrics:
         print_values = []
         for metric_name, metric in self.metrics_dict.items():
             avg_values = metric.average()
-
+            
             for l, v in avg_values.items():
                 value_name = self.class_names[l]
                 print_values.append(float(v))
