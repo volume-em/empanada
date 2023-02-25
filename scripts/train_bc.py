@@ -17,9 +17,6 @@ from torch.cuda.amp import autocast, GradScaler
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from skimage import io
-from skimage import measure
-from matplotlib import pyplot as plt
 
 from empanada import losses
 from empanada import data
