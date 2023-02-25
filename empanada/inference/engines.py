@@ -419,21 +419,48 @@ class BCEngine(_Engine):
 class BCEngineStack(_MedianQueue, BCEngine):
     def __init__(self, model, median_kernel_size=3, **kwargs):
         super().__init__(model=model, median_kernel_size=median_kernel_size)
+        self.padding_factor = padding_factor
 
-    def end(self):
-        # list of remaining segs (1, 2, H, W)
-        return [out['bc'] for out in self.median_queue][self.mid_idx + 1:]
+    @torch.no_grad()
+    def infer(self, image, render_steps=2):            
+        model_out = self.model(image, render_steps)
+        sem_logits = model_out['sem_logits']
+        cnt_logits = model_out['cnt_logits']
 
-    def __call__(self, image):
+        # only works for binary
+        assert sem_logits.size(1) == 1
+        sem = torch.sigmoid(sem_logits)
+        cnt = torch.sigmoid(cnt_logits)
+
+        return {'bc': torch.cat([sem, cnt], dim=1)} # (N, 2, H, W)
+    
+    def end(self, upsampling=1):
+        # any items past self.mid_idx remaining
+        # in the queue are processed and returned
+        final_segs = []
+        for model_out in list(self.median_queue)[self.mid_idx + 1:]:
+            h, w = model_out['size']
+            bc_seg = model_out['bc']
+            final_segs.append(bc_seg[..., :h, :w])
+
+        return final_segs
+
+    def __call__(self, image, size, upsampling=1):
+        assert math.log(upsampling, 2).is_integer(),\
+        "Upsampling factor not log base 2!"
+        
         # check that image is 4d (N, C, H, W) and has a
         # batch dim of 1, larger batch size raises exception
         assert image.ndim == 4 and image.size(0) == 1
 
         # move image to same device as the model
+        h, w = size
+        image = factor_pad(image, self.padding_factor)
         image = self.to_model_device(image)
 
         # infer labels and postprocess
-        model_out = self.infer(image)
+        model_out = self.infer(image, int(2 + math.log(upsampling, 2)))
+        model_out['size'] = size
 
         self.enqueue(model_out)
         median_out = self.get_next(keys=['bc'])
@@ -441,4 +468,4 @@ class BCEngineStack(_MedianQueue, BCEngine):
             # nothing to return, we're building the queue
             return None
 
-        return median_out['bc'] # (1, 2, H, W)
+        return median_out['bc'][..., :h, :w] # (1, 2, H, W)

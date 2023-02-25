@@ -2,9 +2,10 @@ torch>=1.10
 torchvision>=0.2
 numpy>=1.20
 numba>=0.54
-zarr>=2.10
+zarr>=2.12
 opencv-python>=4.5.3
-scikit-image>=0.18
-albumentations
-mlflow
+scikit-image>=0.19
+albumentations>=1.2
+pyyaml
 cztile
+mlflow

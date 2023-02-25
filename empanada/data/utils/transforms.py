@@ -46,9 +46,9 @@ try:
 
         def pad_func(self, x, **kwargs):
             return factor_pad(x, factor=self.factor)
-            
+    
     __all__.append('FactorPad')
-            
+    
 except ImportError:
     pass
 

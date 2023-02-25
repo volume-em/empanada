@@ -605,7 +605,6 @@ def vote_by_ranges(list_of_ranges, vote_thr=2):
         return join_ranges(list_of_ranges)
 
     if len(list_of_ranges) >= vote_thr:
-        # get all the starts and ends of the ranges
         ranges = concat_sort_ranges(list_of_ranges)
         return np.array(rle_voting(ranges, vote_thr))
     else:

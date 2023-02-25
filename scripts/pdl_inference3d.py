@@ -190,6 +190,15 @@ if __name__ == "__main__":
         for index,rle_seg in tqdm(backward_matching(rle_stack, matchers, shape[axis]), total=shape[axis]):
             update_trackers(rle_seg, index, trackers[axis_name], axis, stack)
 
+        if stack is not None:
+            print('Storing panoptic segmentation.')
+            fill_panoptic_volume(stack, trackers[axis_name])
+            
+            if isinstance(stack, np.ndarray):
+                volpath = os.path.dirname(args.volume_path)
+                volname = os.path.basename(args.volume_path).replace('.tif', f'_panoptic_{axis_name}.tif')
+                io.imsave(os.path.join(volpath, volname), stack)
+
         finish_tracking(trackers[axis_name])
         for tracker in trackers[axis_name]:
             filters.remove_small_objects(tracker, min_size=args.min_size)

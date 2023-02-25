@@ -67,7 +67,7 @@ Parameters
 
 **image layer:** The napari image layer on which to run model inference.
 
-**Model:** Model to use for inference.
+**Model:** Model to use for inference. Default options are MitoNet_v1 and MitoNet_v1_mini.
 
 **Image Downsampling:** Downsampling factor to apply to the input image before running
 model inference. The returned segmentation will be interpolated to the original
@@ -91,6 +91,11 @@ segmentation.
 **Max objects per class:** The maximum number of objects that are allowed for any one
 of the classes being segmented by the model.
 
+**Tile size:** Size of image tiles in pixels. When set to 0, inference will be run on the entire image
+in a single pass. For non-zero tile sizes, the image will be partitioned into patches, model inference will be
+run independently on each, and the results are stitched together. By default, all tiles have a minimum overlap of
+128 pixels with their neighbors.
+
 **Batch Mode:** If checked, the selected model will be run independently on each
 xy slice in a stack of images. This can be used, for example, to run inference on
 all images in a folder by loading them with the "Open Folder..." option.
@@ -101,6 +106,12 @@ on the workstation, then this parameter is ignored.
 **Use quantized model:** Whether to use a quantized version of the segmentation model.
 The quantized model only runs on CPU but uses ~4x less memory and runs 20-50% faster (depending
 on the model architecture). Results may be 1-2% worse than using the non-quantized version.
+Quantized models do not work on all operating systems and hardware configurations. Currently, 
+they are not supported by Apple Silicon.
+
+**Confine to viewport:** When checked, model inference will only be performed on the area of the image 
+currently visible in the Napari viewing window. This makes it possible to navigate large images and selectively
+test model performance within a 2D ROI. This option will return an error if run on xz slices of a 3D image.  
 
 **Output to layer:** If checked, the output of the model will be inserted into the given
 output layer (next argument). This argument is incompatible with Batch mode and will raise
@@ -133,17 +144,15 @@ General Parameters
 
 **model:** Model to use for inference.
 
-**Zarr Directory (optional):** Path at which to store segmentation results in zarr
-format. Writing results to disk can help avoid out-of-memory issues when running
-inference on large volumes. Napari natively supports reading zarr files.
-
 **Use GPU:** Whether to use system GPU for running inference. The box will be
 check by default if a GPU is found on your system. If no GPU is detected, then
 this parameter is ignored.
 
 **Use quantized model:** Whether to use a quantized version of the segmentation model.
 The quantized model only runs on CPU but uses ~4x less memory and runs 20-50% faster (depending
-on the model architecture). Results may be 1-2% worse than using the non-quantized version.
+on the model architecture). Results may be 1-2% worse than using the non-quantized version. 
+Quantized models do not work on all operating systems and hardware configurations. Currently, 
+they are not supported by Apple Silicon.
 
 **Multi GPU:** If the workstation is equipped with more than 1 GPU, inference
 can be distributed across them. See note in :ref:`plugin/best-practice:Inference Best Practices`.
@@ -185,7 +194,7 @@ object in the final segmentation. (Filters out big "pancakes").
 **Max objects per class in 3D:** The maximum number of objects that are allowed for any one
 of the classes being segmented by the model within a volume.
 
-**Inference plane:** Plane from which to extract and segmentat slices. Choice of xy, xz, or yz.
+**Inference plane:** Plane from which to extract and segment slices. Choice of xy, xz, or yz.
 
 Ortho-plane Parameters (Optional)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -203,6 +212,16 @@ must be labeled in order to end up in the consensus segmentation.
 **Permit detections found in 1 stack into consensus:** Whether to allow objects
 that appear in only a single stack (for example an object only segmented in xy)
 through to the ortho-plane consensus segmentation.
+
+Ortho-plane Parameters (Optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Directory:** Path at which to store segmentation results in zarr
+format. Writing results to disk can help avoid out-of-memory issues when running
+inference on large volumes. Napari natively supports reading zarr files.
+
+**Chunk size:** Chunk size to use for the Zarr file. Can be an integer for cube-shaped
+chunks or a comma separated list of 3 integers to other chunk sizes. 
 
 Pick training patches
 ==================================
@@ -443,27 +462,57 @@ Parameters
 
 **Model name:** Name of the model to get information about. 
   
-Merge and Delete labels
+Merge labels
 =============================
 
 .. image:: ../_static/merge_labels.png
   :align: center
   :width: 500px
-  :alt: Dialog for the merge and delete labels module.
+  :alt: Dialog for the merge labels module.
 
 Results
 ^^^^^^^^^^^^^
 
-In-place merges or deletes selected labels from a labels layer.
+In-place merges selected labels from a labels layer.
 
 Parameters
 ^^^^^^^^^^^^^^^^
 
-The parameters for the Merge and Delete labels modules are the same.
+**labels layer:** The napari labels layer on which to apply operations.
 
-**labels layer:** The napari labels layer for which to apply operations.
+**points layer:** A napari points layer used to select instances for merging.
 
-**points layers:** The napari points layer used to select instances for merging/deletion.
+**shapes layer:** An optional napari shapes layer used to select instances for merging/deletion. Currently,
+support "line" and "path" shapes. Any instance ids intersected by the lines are merged. Arbitrary combinations
+of shapes and points are allowed.
+
+**Apply in 3D:** Whether to apply the merge operation within the an entire 3D labelmap. Generally should 
+be checked when proofreading 3D segmentations and unchecked when proofreading a stack of 2D segmentations
+(for example, leave it unchecked when proofreading the output of 2D Batch Mode inference).  
+
+Delete labels
+=============================
+
+.. image:: ../_static/delete_labels.png
+  :align: center
+  :width: 500px
+  :alt: Dialog for the delete labels module.
+
+Results
+^^^^^^^^^^^^^
+
+In-place deletes selected labels from a labels layer.
+
+Parameters
+^^^^^^^^^^^^^^^^
+
+**labels layer:** The napari labels layer on which to apply operations.
+
+**points layer:** A napari points layer used to select instances for deletion.
+
+**Apply in 3D:** Whether to apply the delete operation within the an entire 3D labelmap. Generally should 
+be checked when proofreading 3D segmentations and unchecked when proofreading a stack of 2D segmentations
+(for example, leave it unchecked when proofreading the output of 2D Batch Mode inference).  
 
 Split labels
 =============================
@@ -495,6 +544,9 @@ a pixel/voxel to be included in a watershed marker.
 **Use points as markers:** If checked, minimum distance will be ignored and the
 watershed transform will treat each point as a marker.
 
+**Apply in 3D:** Whether to apply the split operation within the an entire 3D labelmap. Generally should 
+be checked when proofreading 3D segmentations and unchecked when proofreading a stack of 2D segmentations
+(for example, leave it unchecked when proofreading the output of 2D Batch Mode inference).  
 
 Jump to label
 =============================

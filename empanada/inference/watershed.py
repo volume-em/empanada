@@ -171,4 +171,3 @@ def bc_watershed(
 
     #return cast2dtype(segm)
     return segm
-
