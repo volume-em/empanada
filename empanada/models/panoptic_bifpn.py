@@ -154,6 +154,9 @@ class PanopticBiFPNPR(PanopticBiFPN):
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points
         )
+
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
         
     def _apply_heads(self, semantic_x, instance_x):
         heads_out = {}

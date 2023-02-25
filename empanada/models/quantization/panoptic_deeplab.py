@@ -6,8 +6,8 @@ from empanada.models.quantization import encoders
 from empanada.models.quantization.point_rend import QuantizablePointRendSemSegHead
 from empanada.models.quantization.decoders import QuantizablePanopticDeepLabDecoder
 from empanada.models.heads import PanopticDeepLabHead
-from empanada.models.panoptic_deeplab import _make3d
 from empanada.models.blocks import *
+from empanada.models.utils import _make3d
 from typing import List, Dict
 
 backbones = sorted(name for name in encoders.__dict__
@@ -47,6 +47,7 @@ class QuantizablePanopticDeepLab(nn.Module):
         aspp_channels=None,
         ins_decoder=False,
         ins_ratio=0.5,
+        dimension=2,
         quantize=False,
         **kwargs
     ):
@@ -106,10 +107,25 @@ class QuantizablePanopticDeepLab(nn.Module):
         else:
             self.quant = nn.Identity()
             self.dequant = nn.Identity()
+
+        if dimension == 3:
+            _make3d(self)
     
     def fix_qconfig(self, observer='fbgemm'):
         self.qconfig = torch.quantization.get_default_qconfig(observer)
 
+    def prepare_quantization(self):
+        torch.quantization.prepare(self.encoder, inplace=True)
+        torch.quantization.prepare(self.semantic_decoder, inplace=True)
+        if self.instance_decoder is not None:
+            torch.quantization.prepare(self.instance_decoder, inplace=True)
+            
+        torch.quantization.prepare(self.semantic_head, inplace=True)
+        torch.quantization.prepare(self.ins_center, inplace=True)
+        
+        torch.quantization.prepare(self.quant, inplace=True)
+        torch.quantization.prepare(self.dequant, inplace=True)
+        
     def _encode_decode(self, x):
         pyramid_features: List[torch.Tensor] = self.encoder(x)
         
@@ -176,6 +192,10 @@ class QuantizablePanopticDeepLabPR(QuantizablePanopticDeepLab):
             importance_sample_ratio, subdivision_steps,
             subdivision_num_points, quantize=kwargs['quantize']
         )
+
+        self.dimension = kwargs['dimension']
+        if self.dimension == 3:
+            _make3d(self.semantic_pr)
         
     def fix_qconfig(self, observer='fbgemm'):
         self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
@@ -302,7 +322,9 @@ class QuantizablePanopticDeepLabBC(QuantizablePanopticDeepLab):
         
         self.dimension = kwargs['dimension']
         if self.dimension == 3:
-            _make3d(self)
+            _make3d(self.semantic_pr)
+            _make3d(self.boundary_pr)
+            _make3d(self.boundary_head)
         
     def fix_qconfig(self, observer='fbgemm'):
         self.encoder.qconfig = torch.quantization.get_default_qconfig(observer)
